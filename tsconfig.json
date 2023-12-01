@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "declaration": false, // .d.ts 파일 생성 활성화
+    "declarationMap": false, // .d.ts 파일에 대한 소스 맵 생성
+    "outDir": "./lib", // 컴파일된 파일들의 출력 디렉토리
+    "rootDir": "./src", // 소스 파일들의 루트 디렉토리
+    "target": "es5", // 브라우저 호환성을 위해 ES5를 대상으로 설정
+    "module": "esnext", // 모듈 시스템은 ES 모듈을 사용
+    "lib": ["dom", "dom.iterable", "esnext"], // 브라우저 API와 최신 ECMAScript 기능을 사용
+    "allowJs": true, // JavaScript 파일을 허용
+    "skipLibCheck": true, // 성능 향상을 위해 타입 정의 파일의 타입 체크를 건너뜀
+    "esModuleInterop": true, // CommonJS 모듈을 ES 모듈처럼 가져오기 위해 필요
+    "allowSyntheticDefaultImports": true, // default export가 없는 모듈을 default import할 수 있게 함
+    "strict": true, // 엄격한 타입 체킹 옵션 활성화
+    "forceConsistentCasingInFileNames": true, // 파일 이름의 대소문자 일관성 강제
+    "moduleResolution": "node", // Node.js 스타일의 모듈 해석
+    "resolveJsonModule": true, // JSON 모듈 가져오기 허용
+    "isolatedModules": true, // 각 파일을 별도의 모듈로 간주
+    "noEmit": false, // 출력 파일 생성 안 함 (Babel 등 다른 도구가 처리할 경우)
+    "jsx": "react" // JSX 코드를 React 요소로 변환
+  },
+  "include": ["src/**/*"], // 컴파일할 파일들의 위치
+  "exclude": [
+    "node_modules",
+    "dist",
+    "webpack.dev.js",
+    "webpack.prod.js",
+    "webpack.common.js"
+  ] // 컴파일에서 제외할 파일들의 위치
+}
