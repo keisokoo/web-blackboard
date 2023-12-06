@@ -3,11 +3,16 @@ type Blackboard = {
   height: number;
 };
 interface Drawable {
-  draw(context: CanvasRenderingContext2D): void;
+  draw(bufferContext: CanvasRenderingContext2D): void;
 }
 class Point {
   constructor(public x: number, public y: number) { }
 }
+type PathData = {
+  points: { x: number; y: number }[];
+  brushSize: number;
+  color: string;
+};
 class Rectangle {
   constructor(public x: number, public y: number, public width: number, public height: number) { }
 
@@ -97,38 +102,32 @@ class QuadTreeNode {
 
     this.divided = true;
   }
+  remove(point: Point): boolean {
+    if (!this.boundary.contains(point)) {
+      return false;
+    }
+
+    const index = this.points.findIndex(p => p.x === point.x && p.y === point.y);
+    if (index !== -1) {
+      this.points.splice(index, 1);
+      return true;
+    }
+
+    if (this.divided) {
+      return (
+        this.children[0].remove(point) ||
+        this.children[1].remove(point) ||
+        this.children[2].remove(point) ||
+        this.children[3].remove(point)
+      );
+    }
+
+    return false;
+  }
 
 }
 const drawAbles: Drawable[] = [];
 
-class Path implements Drawable {
-  private points: { x: number; y: number }[] = [];
-
-  addPoint(x: number, y: number) {
-    this.points.push({ x, y });
-  }
-
-  isNear(x: number, y: number, threshold: number): boolean {
-    return this.points.some(point =>
-      Math.sqrt((point.x - x) ** 2 + (point.y - y) ** 2) < threshold
-    );
-  }
-  containsPoint(point: Point): boolean {
-    return this.points.some(p => p.x === point.x && p.y === point.y);
-  }
-  draw(context: CanvasRenderingContext2D): void {
-    if (this.points.length === 0) return;
-
-    context.beginPath();
-    context.moveTo(this.points[0].x, this.points[0].y);
-
-    for (const point of this.points) {
-      context.lineTo(point.x, point.y);
-    }
-
-    context.stroke();
-  }
-}
 type DrawingType = 'pen' | 'eraser';
 
 function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) {
@@ -137,7 +136,14 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     throw new Error('Canvas element not found');
   }
   const context = el.getContext('2d')
+  const bufferCanvas = document.createElement('canvas');
+  bufferCanvas.width = el.width;
+  bufferCanvas.height = el.height;
+  const bufferContext = bufferCanvas.getContext('2d');
   if (!context) {
+    throw new Error('Canvas context not found');
+  }
+  if (!bufferContext) {
     throw new Error('Canvas context not found');
   }
   let currentType: DrawingType = 'pen'
@@ -147,10 +153,122 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
   let isDrawing = false;
   let isErasing = false;
   let currentPath: Path | null = null;
-  let eraseThreshold = 10;
+  let eraseThreshold = 5;
+  let currentBrushSize = 5;
+  let currentColor = '#000000';
+  let currentMousePosition = { x: 0, y: 0 };
+
+
   const canvasBoundary = new Rectangle(0, 0, el.width, el.height);
   const quadTreeRoot = new QuadTreeNode(canvasBoundary);
+  function updateMainCanvas() {
+    if (!context) return;
+    context.clearRect(0, 0, el.width, el.height);
+    context.drawImage(bufferCanvas, 0, 0);
+    drawCursor(currentMousePosition.x, currentMousePosition.y);
+  }
+  class EraseAction implements Drawable {
+    erasedPathsData: PathData[];
 
+
+    constructor(erasedPaths: Path[]) {
+      this.erasedPathsData = erasedPaths.map(path => path.toData());
+    }
+
+    draw(bufferContext: CanvasRenderingContext2D): void {
+      // 실제로는 여기서 아무것도 그리지 않음
+    }
+
+    // 지워진 Path 객체들을 다시 그리는 메서드
+    restore(bufferContext: CanvasRenderingContext2D) {
+      this.erasedPathsData.forEach(data => {
+        const path = new Path();
+        path.fromData(data);
+        console.log("복원된 Path:", path);
+        path.draw(bufferContext);
+      });
+    }
+  }
+  class Path implements Drawable {
+    private points: { x: number; y: number }[] = [];
+    public brushSize: number = 1;
+    public color: string = 'black';
+    public quadTreePoints: Set<Point> = new Set();
+
+    toData(): PathData {
+      return {
+        points: this.points.slice(), // 포인트 배열 복사
+        brushSize: this.brushSize,
+        color: this.color
+      };
+    }
+
+    fromData(data: PathData) {
+      this.points = data.points.slice(); // 포인트 배열 복사
+      this.brushSize = data.brushSize;
+      this.color = data.color;
+      this.insertQuadTree(data.points[0].x, data.points[0].y)
+    }
+    insertQuadTree(x: number, y: number) {
+      if (this.brushSize === 1) {
+        const point = new Point(x, y);
+        quadTreeRoot.insert(point);
+        this.quadTreePoints.add(point);
+        return;
+      }
+      const radius = this.brushSize / 2;
+      const radiusSquared = radius * radius;
+
+      for (let dx = -radius; dx <= radius; dx++) {
+        for (let dy = -radius; dy <= radius; dy++) {
+          if (dx * dx + dy * dy <= radiusSquared) {
+            const pointX = x + dx;
+            const pointY = y + dy;
+            const point = new Point(pointX, pointY);
+            quadTreeRoot.insert(point);
+            this.quadTreePoints.add(point);
+          }
+        }
+      }
+    }
+    addPoint(x: number, y: number) {
+      this.points.push({ x, y });
+      this.insertQuadTree(x, y);
+    }
+
+    isNear(x: number, y: number, threshold: number): boolean {
+      return this.points.some(point =>
+        Math.sqrt((point.x - x) ** 2 + (point.y - y) ** 2) < threshold
+      );
+    }
+    containsPoint(point: Point): boolean {
+      return this.points.some(p => p.x === point.x && p.y === point.y);
+    }
+    containsQuadTreePoint(point: Point): boolean {
+      return this.quadTreePoints.has(point);
+    }
+    draw(bufferContext: CanvasRenderingContext2D): void {
+      if (this.points.length === 0) return;
+
+      bufferContext.beginPath();
+      bufferContext.lineWidth = this.brushSize;
+      bufferContext.lineCap = 'round';
+      bufferContext.lineJoin = 'round';
+      bufferContext.strokeStyle = this.color;
+      bufferContext.moveTo(this.points[0].x, this.points[0].y);
+
+      for (const point of this.points) {
+        bufferContext.lineTo(point.x, point.y);
+      }
+
+      bufferContext.stroke();
+      // bufferContext.closePath();
+      updateMainCanvas()
+    }
+  }
+  function setColor(newColor: string) {
+    currentColor = newColor;
+  }
   function setDrawingType(type: DrawingType) {
     currentType = type;
   }
@@ -161,57 +279,88 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     if (!currentPath) {
       return;
     }
-    const point = new Point(x, y);
-    currentPath.addPoint(point.x, point.y);
-    quadTreeRoot.insert(point);
+    currentPath.addPoint(x, y);
   }
+  let restoredPaths: Path[] = [];
   function redrawCanvas() {
-    if (!context || !el) return;
-    context.clearRect(0, 0, el.width, el.height);
+    if (!bufferContext || !el) return;
+    bufferContext.clearRect(0, 0, el.width, el.height);
     for (const drawable of undoStack) {
-      drawable.draw(context);
+      drawable.draw(bufferContext);
+    }
+    for (const path of restoredPaths) {
+      path.draw(bufferContext);
+    }
+    if (undoStack.length === 0) {
+      updateMainCanvas()
     }
   }
+
   function undo() {
     if (undoStack.length > 0) {
-      const drawable = undoStack.pop();
-      if (drawable) {
-        redoStack.push(drawable);
+      const action = undoStack.pop();
+      if (action) {
+        if (action instanceof EraseAction) {
+          restoredPaths = action.erasedPathsData.map((value) => {
+            const path = new Path();
+            path.fromData(value);
+            return path;
+          })
+        } else {
+          restoredPaths = [];
+        }
+        redoStack.push(action);
         redrawCanvas();
       }
     }
   }
+
   function redo() {
     if (redoStack.length > 0) {
-      const drawable = redoStack.pop();
-      if (drawable) {
-        undoStack.push(drawable);
+      const action = redoStack.pop();
+      if (action) {
+        if (action instanceof EraseAction) {
+          restoredPaths = action.erasedPathsData.map((value) => {
+            const path = new Path();
+            path.fromData(value);
+            return path;
+          })
+        } else {
+          restoredPaths = [];
+        }
+        undoStack.push(action);
         redrawCanvas();
       }
     }
   }
-  // function eraseAt(x: number, y: number) {
-  //   for (let i = 0; i < undoStack.length; i++) {
-  //     const drawable = undoStack[i];
-  //     if (drawable instanceof Path && drawable.isNear(x, y, eraseThreshold)) {
-  //       undoStack.splice(i, 1);
-  //       i--;
-  //     }
-  //   }
-  //   redrawCanvas();
-  // }
+
+
+  function setBrushSize(size: number) {
+    currentBrushSize = size;
+  }
   function erasePaths(pointsToErase: Point[]) {
     const pathsToRemove = new Set<Path>();
 
     for (const point of pointsToErase) {
       for (const drawable of undoStack) {
-        if (drawable instanceof Path && drawable.containsPoint(point)) {
+        if (drawable instanceof Path && drawable.containsQuadTreePoint(point)) {
           pathsToRemove.add(drawable);
         }
       }
     }
 
-    undoStack = undoStack.filter(drawable => !(drawable instanceof Path && pathsToRemove.has(drawable)));
+    const erasedPaths = Array.from(pathsToRemove);
+    if (erasedPaths.length > 0) {
+      const eraseAction = new EraseAction(erasedPaths);
+      console.log('eraseAction', eraseAction)
+      undoStack.push(eraseAction);
+      for (const path of erasedPaths) {
+        for (const point of Array.from(path.quadTreePoints)) {
+          quadTreeRoot.remove(point);
+        }
+        undoStack = undoStack.filter(drawable => drawable !== path);
+      }
+    }
     redrawCanvas();
   }
   function eraseInQuadTree(x: number, y: number, width: number, height: number) {
@@ -219,36 +368,52 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     const pointsToErase = quadTreeRoot.query(eraseArea);
     erasePaths(pointsToErase);
   }
-  context.clearRect(0, 0, el.width, el.height);
+  bufferContext.clearRect(0, 0, el.width, el.height);
   el.addEventListener('mousedown', (e) => {
     if (currentType === 'eraser') {
-      eraseInQuadTree(e.offsetX, e.offsetY, eraseThreshold, eraseThreshold);
       isErasing = true;
+      eraseInQuadTree(e.offsetX, e.offsetY, eraseThreshold, eraseThreshold);
     }
     if (currentType === 'pen') {
       isDrawing = true;
       currentPath = new Path();
+      currentPath.color = currentColor;
+      currentPath.brushSize = currentBrushSize;
       currentPath.addPoint(e.offsetX, e.offsetY);
-      addPointToPathAndQuadTree(e.offsetX, e.offsetY);
-      redrawCanvas();
+      currentPath.draw(bufferContext);
     }
-    el.addEventListener('mousemove', draw);
+    el.addEventListener('mousemove', freeDraw);
   });
-  function draw(e: MouseEvent) {
+  function drawCursor(x: number, y: number) {
+    if (!context) return;
+    context.beginPath();
+    context.arc(x, y, currentBrushSize / 2, 0, Math.PI * 2);
+    context.strokeStyle = 'black'; // 커서의 색상 설정
+    context.stroke();
+    context.closePath();
+  }
+  el.addEventListener('mousemove', (e) => {
+    currentMousePosition.x = e.offsetX;
+    currentMousePosition.y = e.offsetY;
+    if (isDrawing) {
+      // 드로잉 로직
+    } else {
+      updateMainCanvas(); // 드로잉 중이 아닐 때만 메인 캔버스 업데이트
+    }
+  });
+  function freeDraw(e: MouseEvent) {
     if (e.buttons !== 1) {
-      el.removeEventListener('mousemove', draw);
+      el.removeEventListener('mousemove', freeDraw);
       return;
     }
-    if (!context || !currentPath) {
+    if (!bufferContext || !currentPath) {
       return;
     }
     if (isDrawing) {
-      currentPath.addPoint(e.offsetX, e.offsetY);
       addPointToPathAndQuadTree(e.offsetX, e.offsetY);
-      currentPath.draw(context);
+      currentPath.draw(bufferContext);
     }
     if (isErasing) {
-      console.log('isErasing', isErasing)
       eraseInQuadTree(e.offsetX, e.offsetY, eraseThreshold, eraseThreshold);
     }
   }
@@ -260,75 +425,29 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     if (isErasing) {
       isErasing = false;
     }
-    el.removeEventListener('mousemove', draw);
+    redoStack = [];
+    updateMainCanvas()
+    el.removeEventListener('mousemove', freeDraw);
   });
   el.addEventListener('mouseleave', () => {
-    el.removeEventListener('mousemove', draw);
+    el.removeEventListener('mousemove', freeDraw);
   });
-  // el.addEventListener('touchstart', (e) => {
-  //   context.beginPath();
-  //   context.moveTo(e.touches[0].clientX, e.touches[0].clientY);
-  //   el.addEventListener('touchmove', drawTouch);
-  // }
-  // );
-  // function drawTouch(e: TouchEvent) {
-  //   if (!context) {
-  //     return;
-  //   }
-  //   context.lineTo(e.touches[0].clientX, e.touches[0].clientY);
-  //   context.stroke();
-  // }
-  // el.addEventListener('touchend', () => {
-  //   el.removeEventListener('touchmove', drawTouch);
-  // });
-  // el.addEventListener('touchcancel', () => {
-  //   el.removeEventListener('touchmove', drawTouch);
-  // });
-  // el.addEventListener('touchleave', () => {
-  //   el.removeEventListener('touchmove', drawTouch);
-  // }
-  // );
-  // el.addEventListener('pointerdown', (e) => {
-  //   context.beginPath();
-  //   context.moveTo(e.offsetX, e.offsetY);
-  //   el.addEventListener('pointermove', drawPointer);
-  // }
-  // );
-  // function drawPointer(e: PointerEvent) {
-  //   if (!context) {
-  //     return;
-  //   }
-  //   context.lineTo(e.offsetX, e.offsetY);
-  //   context.stroke();
-  // }
-  // el.addEventListener('pointerup', () => {
-  //   el.removeEventListener('pointermove', drawPointer);
-  // });
-  // el.addEventListener('pointerleave', () => {
-  //   el.removeEventListener('pointermove', drawPointer);
-  // });
-  // el.addEventListener('pointerout', () => {
-  //   el.removeEventListener('pointermove', drawPointer);
-  // });
-  // el.addEventListener('pointerover', () => {
-  //   el.removeEventListener('pointermove', drawPointer);
-  // });
-  // el.addEventListener('pointercancel', () => {
-  //   el.removeEventListener('pointermove', drawPointer);
-  // });
-  // el.addEventListener('dblclick', () => {
-  //   context.clearRect(0, 0, el.width, el.height);
-  // });
   return {
+    data: {
+      color: currentColor,
+      brushSize: currentBrushSize,
+    },
     setDrawingType,
     setEraseThreshold,
     undo,
     redo,
+    setBrushSize,
+    setColor,
     clear() {
-      if (!context) {
+      if (!bufferContext) {
         return;
       }
-      context.clearRect(0, 0, el.width, el.height);
+      bufferContext.clearRect(0, 0, el.width, el.height);
     },
     toDataURL() {
       return el.toDataURL();
@@ -345,14 +464,6 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     },
     setHeight(height: number) {
       el.height = height;
-    },
-    setOptions(options: Partial<Blackboard>) {
-      if (options.width) {
-        el.width = options.width;
-      }
-      if (options.height) {
-        el.height = options.height;
-      }
     }
   };
 };

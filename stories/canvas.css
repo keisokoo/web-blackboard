@@ -1,0 +1,25 @@
+.canvas-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 1rem;
+}
+.buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+}
+.canvas-wrap canvas {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: none;
+}
+.controls-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 1rem;
+}
