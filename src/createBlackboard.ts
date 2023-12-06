@@ -66,24 +66,26 @@ class QuadTreeNode {
     );
   }
 
-  query(range: Rectangle, found: Point[] = []): Point[] {
-    if (!this.boundary.intersects(range)) {
-      return found;
-    }
-
-    for (const point of this.points) {
-      if (range.contains(point)) {
-        found.push(point);
+  query(range: Rectangle, found: Point[] = []): Promise<Point[]> {
+    return new Promise((resolve) => {
+      if (!this.boundary.intersects(range)) {
+        resolve(found)
+        return;
       }
-    }
 
-    if (this.divided) {
-      for (const child of this.children) {
-        child.query(range, found);
+      for (const point of this.points) {
+        if (range.contains(point)) {
+          found.push(point);
+        }
       }
-    }
 
-    return found;
+      if (this.divided) {
+        const promises = this.children.map(child => child.query(range, found));
+        Promise.all(promises).then(() => resolve(found));
+      } else {
+        resolve(found);
+      }
+    })
   }
   subdivide() {
     const { x, y, width, height } = this.boundary;
@@ -164,6 +166,7 @@ function createBlackboard(el: HTMLCanvasElement) {
   let currentBrushSize = 5;
   let currentColor = '#000000';
   let currentMousePosition = { x: 0, y: 0 };
+  let isQueryInProgress = false;
 
   let lastX: number, lastY: number;
 
@@ -408,16 +411,18 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
     redrawCanvas();
   }
-  function eraseInQuadTree(x: number, y: number, width: number, height: number) {
+  async function eraseInQuadTree(x: number, y: number, width: number, height: number) {
     const eraseArea = new Rectangle(x, y, width, height);
-    const pointsToErase = quadTreeRoot.query(eraseArea);
+    isQueryInProgress = true;
+    const pointsToErase = await quadTreeRoot.query(eraseArea);
+    isQueryInProgress = false;
     erasePaths(pointsToErase);
   }
   bufferContext.clearRect(0, 0, el.width, el.height);
-  el.addEventListener('mousedown', (e) => {
-    if (currentType === 'eraser') {
+  el.addEventListener('mousedown', async (e) => {
+    if (currentType === 'eraser' && !isQueryInProgress) {
       isErasing = true;
-      eraseInQuadTree(e.offsetX, e.offsetY, eraseThreshold, eraseThreshold);
+      await eraseInQuadTree(e.offsetX, e.offsetY, eraseThreshold, eraseThreshold);
     }
     if (currentType === 'pen') {
       isDrawing = true;
@@ -456,7 +461,7 @@ function createBlackboard(el: HTMLCanvasElement) {
     offsetY = e.offsetY;
     requestAnimationFrame(freeDraw);
   }
-  function freeDraw() {
+  async function freeDraw() {
     if (!bufferContext || !currentPath) {
       return;
     }
@@ -467,7 +472,7 @@ function createBlackboard(el: HTMLCanvasElement) {
       currentPath.draw(bufferContext);
     }
     if (isErasing) {
-      eraseInQuadTree(offsetX, offsetY, eraseThreshold, eraseThreshold);
+      await eraseInQuadTree(offsetX, offsetY, eraseThreshold, eraseThreshold);
     }
   }
   el.addEventListener('mouseup', (e) => {
