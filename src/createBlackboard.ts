@@ -1,7 +1,3 @@
-type Blackboard = {
-  width: number;
-  height: number;
-};
 interface Drawable {
   draw(bufferContext: CanvasRenderingContext2D): void;
 }
@@ -12,6 +8,7 @@ type PathData = {
   points: { x: number; y: number }[];
   brushSize: number;
   color: string;
+  quadTreePoints: Set<Point>;
 };
 class Rectangle {
   constructor(public x: number, public y: number, public width: number, public height: number) { }
@@ -126,11 +123,17 @@ class QuadTreeNode {
   }
 
 }
-const drawAbles: Drawable[] = [];
 
+function generateHash() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
 type DrawingType = 'pen' | 'eraser';
-
-function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) {
+type PathActionType = 'add' | 'remove';
+export type HistoryStack = {
+  hash: string;
+  pathAction: PathActionType;
+}
+function createBlackboard(el: HTMLCanvasElement) {
 
   if (!el || !(el instanceof HTMLCanvasElement)) {
     throw new Error('Canvas element not found');
@@ -146,9 +149,13 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
   if (!bufferContext) {
     throw new Error('Canvas context not found');
   }
+  type PathArrayType = {
+    [key: string]: Path;
+  }
   let currentType: DrawingType = 'pen'
-  let undoStack: Drawable[] = [];
-  let redoStack: Drawable[] = [];
+  let undoStack: HistoryStack[] = [];
+  let redoStack: HistoryStack[] = [];
+  let pathArray: PathArrayType = {};
 
   let isDrawing = false;
   let isErasing = false;
@@ -172,20 +179,36 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     public brushSize: number = 1;
     public color: string = 'black';
     public quadTreePoints: Set<Point> = new Set();
-
+    private options: PathData = {
+      points: [],
+      brushSize: 1,
+      color: 'black',
+      quadTreePoints: new Set()
+    };
+    hash: string;
+    actionType: PathActionType = 'add';
+    constructor(options?: Partial<PathData>) {
+      this.hash = generateHash();
+      if (options) {
+        this.fromData(Object.assign({}, this.options, options));
+      }
+    }
+    setRemove() {
+      this.actionType = 'remove';
+    }
     toData(): PathData {
       return {
-        points: this.points.slice(), // 포인트 배열 복사
+        points: this.points.slice(),
         brushSize: this.brushSize,
-        color: this.color
+        color: this.color,
+        quadTreePoints: this.quadTreePoints
       };
     }
-
     fromData(data: PathData) {
-      this.points = data.points.slice(); // 포인트 배열 복사
+      this.points = data.points.slice();
       this.brushSize = data.brushSize;
       this.color = data.color;
-      this.insertQuadTree(data.points[0].x, data.points[0].y)
+      this.quadTreePoints = data.quadTreePoints;
     }
     insertQuadTree(x: number, y: number) {
       if (this.brushSize === 1) {
@@ -226,8 +249,8 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
       return this.quadTreePoints.has(point);
     }
     draw(bufferContext: CanvasRenderingContext2D): void {
-      console.log('this.points', this.points, this.color, this.brushSize)
       if (this.points.length === 0) return;
+      if (this.actionType !== 'add') return;
 
       bufferContext.beginPath();
       bufferContext.lineWidth = this.brushSize;
@@ -263,10 +286,12 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
   function redrawCanvas() {
     if (!bufferContext || !el) return;
     bufferContext.clearRect(0, 0, el.width, el.height);
-    for (const drawable of undoStack) {
-      drawable.draw(bufferContext);
+    let removedHash: string[] = undoStack.filter(stack => stack.pathAction === 'remove').map(stack => stack.hash)
+    let parsedStack: HistoryStack[] = undoStack.filter(stack => !removedHash.includes(stack.hash))
+    for (const drawable of parsedStack) {
+      if (pathArray[drawable.hash]) pathArray[drawable.hash].draw(bufferContext);
     }
-    if (undoStack.length === 0) {
+    if (parsedStack.length === 0) {
       updateMainCanvas()
     }
   }
@@ -293,22 +318,23 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
   }
   function erasePaths(pointsToErase: Point[]) {
     const pathsToRemove = new Set<Path>();
-
     for (const point of pointsToErase) {
-      for (const drawable of undoStack) {
+      for (const drawable of Object.values(pathArray)) {
         if (drawable instanceof Path && drawable.containsQuadTreePoint(point)) {
           pathsToRemove.add(drawable);
         }
       }
     }
-
     const erasedPaths = Array.from(pathsToRemove);
     if (erasedPaths.length > 0) {
       for (const path of erasedPaths) {
         for (const point of Array.from(path.quadTreePoints)) {
           quadTreeRoot.remove(point);
         }
-        undoStack = undoStack.filter(drawable => drawable !== path);
+        undoStack.push({
+          hash: path.hash,
+          pathAction: 'remove'
+        })
       }
     }
     redrawCanvas();
@@ -338,18 +364,14 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     if (!context) return;
     context.beginPath();
     context.arc(x, y, currentBrushSize / 2, 0, Math.PI * 2);
-    context.strokeStyle = 'black'; // 커서의 색상 설정
+    context.strokeStyle = '#000000';
     context.stroke();
     context.closePath();
   }
   el.addEventListener('mousemove', (e) => {
     currentMousePosition.x = e.offsetX;
     currentMousePosition.y = e.offsetY;
-    if (isDrawing) {
-      // 드로잉 로직
-    } else {
-      updateMainCanvas(); // 드로잉 중이 아닐 때만 메인 캔버스 업데이트
-    }
+    if (!isDrawing) updateMainCanvas();
   });
   function freeDraw(e: MouseEvent) {
     if (e.buttons !== 1) {
@@ -369,23 +391,36 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
   }
   el.addEventListener('mouseup', (e) => {
     if (isDrawing && currentPath) {
-      undoStack.push(currentPath);
+      undoStack.push({
+        hash: currentPath.hash,
+        pathAction: 'add'
+      });
+      pathArray[currentPath.hash] = currentPath;
       isDrawing = false;
     }
     if (isErasing) {
       isErasing = false;
     }
+    redoStack = [];
     updateMainCanvas()
     el.removeEventListener('mousemove', freeDraw);
   });
   el.addEventListener('mouseleave', () => {
     el.removeEventListener('mousemove', freeDraw);
   });
+  function getUndoStack() {
+    return undoStack;
+  }
+  function getRedoStack() {
+    return redoStack;
+  }
   return {
     data: {
       color: currentColor,
       brushSize: currentBrushSize,
     },
+    getRedoStack,
+    getUndoStack,
     setDrawingType,
     setEraseThreshold,
     undo,

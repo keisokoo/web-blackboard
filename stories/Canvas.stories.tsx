@@ -1,22 +1,25 @@
 import { Meta } from '@storybook/react'
-import React, { useEffect } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { createBlackboard } from '../src'
 import './canvas.css'
+import { HistoryStack } from '../src/createBlackboard'
 export const Demo = () => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const [methods, set_Methods] = React.useState<ReturnType<
     typeof createBlackboard
   > | null>(null)
-  const [canvasData, set_CanvasData] = React.useState<{
+  const [canvasData, set_canvasData] = React.useState<{
     brushSize: number
     color: string
   }>({ brushSize: 1, color: '#000000' })
+  // const [undoStack, set_undoStack] = React.useState<HistoryStack[]>([])
+  // const [redoStack, set_redoStack] = React.useState<HistoryStack[]>([])
   useEffect(() => {
     if (!canvasRef.current) return
     const canvas = canvasRef.current
     const methods = createBlackboard(canvas)
     set_Methods(methods)
-    set_CanvasData(methods.data)
+    set_canvasData(methods.data)
   }, [])
   return (
     <div className="canvas-wrap">
@@ -40,7 +43,7 @@ export const Demo = () => {
             value={canvasData.color}
             onChange={(e) => {
               methods?.setColor(e.target.value)
-              set_CanvasData((prev) => ({
+              set_canvasData((prev) => ({
                 ...prev,
                 color: e.target.value,
               }))
@@ -56,7 +59,7 @@ export const Demo = () => {
             value={canvasData.brushSize}
             onChange={(e) => {
               methods?.setBrushSize(Number(e.target.value))
-              set_CanvasData((prev) => ({
+              set_canvasData((prev) => ({
                 ...prev,
                 brushSize: Number(e.target.value),
               }))
