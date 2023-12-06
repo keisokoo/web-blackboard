@@ -167,28 +167,6 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     context.drawImage(bufferCanvas, 0, 0);
     drawCursor(currentMousePosition.x, currentMousePosition.y);
   }
-  class EraseAction implements Drawable {
-    erasedPathsData: PathData[];
-
-
-    constructor(erasedPaths: Path[]) {
-      this.erasedPathsData = erasedPaths.map(path => path.toData());
-    }
-
-    draw(bufferContext: CanvasRenderingContext2D): void {
-      // 실제로는 여기서 아무것도 그리지 않음
-    }
-
-    // 지워진 Path 객체들을 다시 그리는 메서드
-    restore(bufferContext: CanvasRenderingContext2D) {
-      this.erasedPathsData.forEach(data => {
-        const path = new Path();
-        path.fromData(data);
-        console.log("복원된 Path:", path);
-        path.draw(bufferContext);
-      });
-    }
-  }
   class Path implements Drawable {
     private points: { x: number; y: number }[] = [];
     public brushSize: number = 1;
@@ -248,6 +226,7 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
       return this.quadTreePoints.has(point);
     }
     draw(bufferContext: CanvasRenderingContext2D): void {
+      console.log('this.points', this.points, this.color, this.brushSize)
       if (this.points.length === 0) return;
 
       bufferContext.beginPath();
@@ -262,7 +241,7 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
       }
 
       bufferContext.stroke();
-      // bufferContext.closePath();
+      bufferContext.closePath();
       updateMainCanvas()
     }
   }
@@ -281,60 +260,34 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     }
     currentPath.addPoint(x, y);
   }
-  let restoredPaths: Path[] = [];
   function redrawCanvas() {
     if (!bufferContext || !el) return;
     bufferContext.clearRect(0, 0, el.width, el.height);
     for (const drawable of undoStack) {
       drawable.draw(bufferContext);
     }
-    for (const path of restoredPaths) {
-      path.draw(bufferContext);
-    }
     if (undoStack.length === 0) {
       updateMainCanvas()
     }
   }
-
   function undo() {
     if (undoStack.length > 0) {
       const action = undoStack.pop();
       if (action) {
-        if (action instanceof EraseAction) {
-          restoredPaths = action.erasedPathsData.map((value) => {
-            const path = new Path();
-            path.fromData(value);
-            return path;
-          })
-        } else {
-          restoredPaths = [];
-        }
         redoStack.push(action);
         redrawCanvas();
       }
     }
   }
-
   function redo() {
     if (redoStack.length > 0) {
       const action = redoStack.pop();
       if (action) {
-        if (action instanceof EraseAction) {
-          restoredPaths = action.erasedPathsData.map((value) => {
-            const path = new Path();
-            path.fromData(value);
-            return path;
-          })
-        } else {
-          restoredPaths = [];
-        }
         undoStack.push(action);
         redrawCanvas();
       }
     }
   }
-
-
   function setBrushSize(size: number) {
     currentBrushSize = size;
   }
@@ -351,9 +304,6 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
 
     const erasedPaths = Array.from(pathsToRemove);
     if (erasedPaths.length > 0) {
-      const eraseAction = new EraseAction(erasedPaths);
-      console.log('eraseAction', eraseAction)
-      undoStack.push(eraseAction);
       for (const path of erasedPaths) {
         for (const point of Array.from(path.quadTreePoints)) {
           quadTreeRoot.remove(point);
@@ -425,7 +375,6 @@ function createBlackboard(el: HTMLCanvasElement, options?: Partial<Blackboard>) 
     if (isErasing) {
       isErasing = false;
     }
-    redoStack = [];
     updateMainCanvas()
     el.removeEventListener('mousemove', freeDraw);
   });
