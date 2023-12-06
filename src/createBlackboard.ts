@@ -165,14 +165,61 @@ function createBlackboard(el: HTMLCanvasElement) {
   let currentColor = '#000000';
   let currentMousePosition = { x: 0, y: 0 };
 
+  let lastX: number, lastY: number;
 
   const canvasBoundary = new Rectangle(0, 0, el.width, el.height);
-  const quadTreeRoot = new QuadTreeNode(canvasBoundary);
+  let quadTreeRoot = new QuadTreeNode(canvasBoundary);
+
   function updateMainCanvas() {
     if (!context) return;
     context.clearRect(0, 0, el.width, el.height);
     context.drawImage(bufferCanvas, 0, 0);
     drawCursor(currentMousePosition.x, currentMousePosition.y);
+  }
+  function drawQuadTreePoints(node?: QuadTreeNode) {
+    node = node || quadTreeRoot;
+    if (!context) return;
+
+    node.points.forEach(point => {
+      context.fillStyle = 'red';
+      context.globalAlpha = 0.5;
+      context.beginPath();
+      context.arc(point.x, point.y, 0.5, 0, Math.PI * 2);
+      context.fill();
+    });
+    context.globalAlpha = 1;
+
+    if (node.divided) {
+      node.children.forEach(child => drawQuadTreePoints(child));
+    }
+  }
+  function drawQuadTreeBoundary(node?: QuadTreeNode) {
+    node = node || quadTreeRoot;
+    if (!context) return;
+
+    context.strokeStyle = 'blue';
+    context.beginPath();
+    context.rect(node.boundary.x, node.boundary.y, node.boundary.width, node.boundary.height);
+    context.stroke();
+
+    if (node.divided) {
+      node.children.forEach(child => drawQuadTreeBoundary(child));
+    }
+  }
+  function drawQuadTreePointsInPaths() {
+    if (!context) return;
+    for (const path of Object.values(pathArray)) {
+      if (path instanceof Path) {
+        for (const point of Array.from(path.quadTreePoints.values())) {
+          context.fillStyle = 'red';
+          context.globalAlpha = 0.5;
+          context.beginPath();
+          context.arc(point.x, point.y, 0.5, 0, Math.PI * 2);
+          context.fill();
+        }
+      }
+    }
+    context.globalAlpha = 1;
   }
   class Path implements Drawable {
     private points: { x: number; y: number }[] = [];
@@ -211,6 +258,9 @@ function createBlackboard(el: HTMLCanvasElement) {
       this.quadTreePoints = data.quadTreePoints;
     }
     insertQuadTree(x: number, y: number) {
+      if (x < 0 || x > el.width || y < 0 || y > el.height) {
+        return;
+      }
       if (this.brushSize === 1) {
         const point = new Point(x, y);
         quadTreeRoot.insert(point);
@@ -219,9 +269,10 @@ function createBlackboard(el: HTMLCanvasElement) {
       }
       const radius = this.brushSize / 2;
       const radiusSquared = radius * radius;
+      const step = Math.max(1, Math.ceil(radius / 3));
 
-      for (let dx = -radius; dx <= radius; dx++) {
-        for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx += step) {
+        for (let dy = -radius; dy <= radius; dy += step) {
           if (dx * dx + dy * dy <= radiusSquared) {
             const pointX = x + dx;
             const pointY = y + dy;
@@ -234,7 +285,6 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
     addPoint(x: number, y: number) {
       this.points.push({ x, y });
-      this.insertQuadTree(x, y);
     }
 
     isNear(x: number, y: number, threshold: number): boolean {
@@ -277,12 +327,18 @@ function createBlackboard(el: HTMLCanvasElement) {
   function setEraseThreshold(threshold: number) {
     eraseThreshold = threshold;
   }
-  function addPointToPathAndQuadTree(x: number, y: number) {
-    if (!currentPath) {
-      return;
+  function addPointToQuadTree(path: Path, x: number, y: number, lastX: number, lastY: number) {
+    const distance = Math.sqrt((x - lastX) ** 2 + (y - lastY) ** 2);
+    const steps = Math.ceil(distance / 2);
+
+    for (let i = 0; i <= steps; i++) {
+      const interpolatedX = lastX + (x - lastX) * (i / steps);
+      const interpolatedY = lastY + (y - lastY) * (i / steps);
+      path.insertQuadTree(interpolatedX, interpolatedY);
     }
-    currentPath.addPoint(x, y);
+    path.addPoint(x, y)
   }
+
   function redrawCanvas() {
     if (!bufferContext || !el) return;
     bufferContext.clearRect(0, 0, el.width, el.height);
@@ -291,6 +347,7 @@ function createBlackboard(el: HTMLCanvasElement) {
     for (const drawable of parsedStack) {
       if (pathArray[drawable.hash]) pathArray[drawable.hash].draw(bufferContext);
     }
+    rebuildQuadTree(parsedStack)
     if (parsedStack.length === 0) {
       updateMainCanvas()
     }
@@ -315,6 +372,18 @@ function createBlackboard(el: HTMLCanvasElement) {
   }
   function setBrushSize(size: number) {
     currentBrushSize = size;
+  }
+  function rebuildQuadTree(parsedStack: HistoryStack[]) {
+    quadTreeRoot = new QuadTreeNode(canvasBoundary);
+
+    for (const parsed of parsedStack) {
+      const path = pathArray[parsed.hash]
+      if (path instanceof Path) {
+        for (const point of Array.from(path.quadTreePoints.values())) {
+          quadTreeRoot.insert(point);
+        }
+      }
+    }
   }
   function erasePaths(pointsToErase: Point[]) {
     const pathsToRemove = new Set<Path>();
@@ -352,13 +421,16 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
     if (currentType === 'pen') {
       isDrawing = true;
+      lastX = e.offsetX;
+      lastY = e.offsetY;
       currentPath = new Path();
       currentPath.color = currentColor;
       currentPath.brushSize = currentBrushSize;
       currentPath.addPoint(e.offsetX, e.offsetY);
+      currentPath.insertQuadTree(e.offsetX, e.offsetY);
       currentPath.draw(bufferContext);
     }
-    el.addEventListener('mousemove', freeDraw);
+    el.addEventListener('mousemove', updateWithMouseMovement);
   });
   function drawCursor(x: number, y: number) {
     if (!context) return;
@@ -373,20 +445,29 @@ function createBlackboard(el: HTMLCanvasElement) {
     currentMousePosition.y = e.offsetY;
     if (!isDrawing) updateMainCanvas();
   });
-  function freeDraw(e: MouseEvent) {
+  let offsetX = 0;
+  let offsetY = 0;
+  function updateWithMouseMovement(e: MouseEvent) {
     if (e.buttons !== 1) {
-      el.removeEventListener('mousemove', freeDraw);
+      el.removeEventListener('mousemove', updateWithMouseMovement);
       return;
     }
+    offsetX = e.offsetX;
+    offsetY = e.offsetY;
+    requestAnimationFrame(freeDraw);
+  }
+  function freeDraw() {
     if (!bufferContext || !currentPath) {
       return;
     }
     if (isDrawing) {
-      addPointToPathAndQuadTree(e.offsetX, e.offsetY);
+      addPointToQuadTree(currentPath, offsetX, offsetY, lastX, lastY)
+      lastX = offsetX;
+      lastY = offsetY;
       currentPath.draw(bufferContext);
     }
     if (isErasing) {
-      eraseInQuadTree(e.offsetX, e.offsetY, eraseThreshold, eraseThreshold);
+      eraseInQuadTree(offsetX, offsetY, eraseThreshold, eraseThreshold);
     }
   }
   el.addEventListener('mouseup', (e) => {
@@ -403,10 +484,10 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
     redoStack = [];
     updateMainCanvas()
-    el.removeEventListener('mousemove', freeDraw);
+    el.removeEventListener('mousemove', updateWithMouseMovement);
   });
   el.addEventListener('mouseleave', () => {
-    el.removeEventListener('mousemove', freeDraw);
+    el.removeEventListener('mousemove', updateWithMouseMovement);
   });
   function getUndoStack() {
     return undoStack;
@@ -419,6 +500,9 @@ function createBlackboard(el: HTMLCanvasElement) {
       color: currentColor,
       brushSize: currentBrushSize,
     },
+    drawQuadTreePointsInPaths,
+    drawQuadTreeBoundary,
+    drawQuadTreePoints,
     getRedoStack,
     getUndoStack,
     setDrawingType,

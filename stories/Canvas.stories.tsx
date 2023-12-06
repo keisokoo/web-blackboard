@@ -25,6 +25,12 @@ export const Demo = () => {
     <div className="canvas-wrap">
       <h1>Canvas</h1>
       <div className="buttons">
+        <button onClick={() => methods?.drawQuadTreePoints()}>
+          TreePoints(debug)
+        </button>
+        <button onClick={() => methods?.drawQuadTreeBoundary()}>
+          TreeBoundary(debug)
+        </button>
         <button onClick={() => methods?.undo()}>undo</button>
         <button onClick={() => methods?.redo()}>redo</button>
         <button onClick={() => methods?.setDrawingType('eraser')}>
