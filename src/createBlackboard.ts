@@ -1,140 +1,13 @@
-interface Drawable {
-  draw(bufferContext: CanvasRenderingContext2D): void;
-}
-class Point {
-  constructor(public x: number, public y: number) { }
-}
-type PathData = {
-  points: { x: number; y: number }[];
-  brushSize: number;
-  color: string;
-  quadTreePoints: Set<Point>;
-};
-class Rectangle {
-  constructor(public x: number, public y: number, public width: number, public height: number) { }
+import Point from "./path/Point";
+import Rectangle from "./path/Rectangle";
+import QuadTreeNode from "./path/QuadTreeNode";
+import BrushOptions from "./brushes/BrushOptions";
+import Eraser from "./brushes/Eraser";
+import Pen from "./brushes/Pen";
+import { DrawingType, HistoryStack, PathActionType } from "./types";
+import Path from "./path/Path";
+import PathArrayType from "./path/PathArrayType";
 
-  contains(point: Point): boolean {
-    return (
-      point.x >= this.x &&
-      point.x <= this.x + this.width &&
-      point.y >= this.y &&
-      point.y <= this.y + this.height
-    );
-  }
-
-  intersects(range: Rectangle): boolean {
-    return !(
-      range.x > this.x + this.width ||
-      range.x + range.width < this.x ||
-      range.y > this.y + this.height ||
-      range.y + range.height < this.y
-    );
-  }
-}
-class QuadTreeNode {
-  boundary: Rectangle;
-  points: Point[];
-  divided: boolean;
-  children: QuadTreeNode[];
-
-  constructor(boundary: Rectangle) {
-    this.boundary = boundary;
-    this.points = [];
-    this.divided = false;
-    this.children = [];
-  }
-
-  insert(point: Point): boolean {
-    if (!this.boundary.contains(point)) {
-      return false;
-    }
-
-    if (this.points.length < 4) {
-      this.points.push(point);
-      return true;
-    }
-
-    if (!this.divided) {
-      this.subdivide();
-    }
-
-    return (
-      this.children[0].insert(point) ||
-      this.children[1].insert(point) ||
-      this.children[2].insert(point) ||
-      this.children[3].insert(point)
-    );
-  }
-
-  query(range: Rectangle, found: Point[] = []): Promise<Point[]> {
-    return new Promise((resolve) => {
-      if (!this.boundary.intersects(range)) {
-        resolve(found)
-        return;
-      }
-
-      for (const point of this.points) {
-        if (range.contains(point)) {
-          found.push(point);
-        }
-      }
-
-      if (this.divided) {
-        const promises = this.children.map(child => child.query(range, found));
-        Promise.all(promises).then(() => resolve(found));
-      } else {
-        resolve(found);
-      }
-    })
-  }
-  subdivide() {
-    const { x, y, width, height } = this.boundary;
-    const nw = new Rectangle(x, y, width / 2, height / 2);
-    const ne = new Rectangle(x + width / 2, y, width / 2, height / 2);
-    const sw = new Rectangle(x, y + height / 2, width / 2, height / 2);
-    const se = new Rectangle(x + width / 2, y + height / 2, width / 2, height / 2);
-
-    this.children.push(new QuadTreeNode(nw));
-    this.children.push(new QuadTreeNode(ne));
-    this.children.push(new QuadTreeNode(sw));
-    this.children.push(new QuadTreeNode(se));
-
-    this.divided = true;
-  }
-  remove(point: Point): boolean {
-    if (!this.boundary.contains(point)) {
-      return false;
-    }
-
-    const index = this.points.findIndex(p => p.x === point.x && p.y === point.y);
-    if (index !== -1) {
-      this.points.splice(index, 1);
-      return true;
-    }
-
-    if (this.divided) {
-      return (
-        this.children[0].remove(point) ||
-        this.children[1].remove(point) ||
-        this.children[2].remove(point) ||
-        this.children[3].remove(point)
-      );
-    }
-
-    return false;
-  }
-
-}
-
-function generateHash() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
-type DrawingType = 'pen' | 'eraser';
-type PathActionType = 'add' | 'remove';
-export type HistoryStack = {
-  hash: string;
-  pathAction: PathActionType;
-}
 function createBlackboard(el: HTMLCanvasElement) {
 
   if (!el || !(el instanceof HTMLCanvasElement)) {
@@ -151,20 +24,22 @@ function createBlackboard(el: HTMLCanvasElement) {
   if (!bufferContext) {
     throw new Error('Canvas context not found');
   }
-  type PathArrayType = {
-    [key: string]: Path;
-  }
   let currentType: DrawingType = 'pen'
   let undoStack: HistoryStack[] = [];
   let redoStack: HistoryStack[] = [];
   let pathArray: PathArrayType = {};
-
+  function getCurrentOptions(type: DrawingType = 'pen'): BrushOptions {
+    if (type === 'pen') return pen.options;
+    if (type === 'eraser') return eraser.options;
+    return pen.options;
+  }
   let isDrawing = false;
   let isErasing = false;
+  let pen = new Pen();
+  let eraser = new Eraser();
   let currentPath: Path | null = null;
-  let eraseThreshold = 5;
-  let currentBrushSize = 5;
-  let currentColor = '#000000';
+  let currentDrawingOptions = getCurrentOptions(currentType);
+
   let currentMousePosition = { x: 0, y: 0 };
   let isQueryInProgress = false;
 
@@ -224,111 +99,15 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
     context.globalAlpha = 1;
   }
-  class Path implements Drawable {
-    private points: { x: number; y: number }[] = [];
-    public brushSize: number = 1;
-    public color: string = 'black';
-    public quadTreePoints: Set<Point> = new Set();
-    private options: PathData = {
-      points: [],
-      brushSize: 1,
-      color: 'black',
-      quadTreePoints: new Set()
-    };
-    hash: string;
-    actionType: PathActionType = 'add';
-    constructor(options?: Partial<PathData>) {
-      this.hash = generateHash();
-      if (options) {
-        this.fromData(Object.assign({}, this.options, options));
-      }
-    }
-    setRemove() {
-      this.actionType = 'remove';
-    }
-    toData(): PathData {
-      return {
-        points: this.points.slice(),
-        brushSize: this.brushSize,
-        color: this.color,
-        quadTreePoints: this.quadTreePoints
-      };
-    }
-    fromData(data: PathData) {
-      this.points = data.points.slice();
-      this.brushSize = data.brushSize;
-      this.color = data.color;
-      this.quadTreePoints = data.quadTreePoints;
-    }
-    insertQuadTree(x: number, y: number) {
-      if (x < 0 || x > el.width || y < 0 || y > el.height) {
-        return;
-      }
-      if (this.brushSize === 1) {
-        const point = new Point(x, y);
-        quadTreeRoot.insert(point);
-        this.quadTreePoints.add(point);
-        return;
-      }
-      const radius = this.brushSize / 2;
-      const radiusSquared = radius * radius;
-      const step = Math.max(1, Math.ceil(radius / 3));
-
-      for (let dx = -radius; dx <= radius; dx += step) {
-        for (let dy = -radius; dy <= radius; dy += step) {
-          if (dx * dx + dy * dy <= radiusSquared) {
-            const pointX = x + dx;
-            const pointY = y + dy;
-            const point = new Point(pointX, pointY);
-            quadTreeRoot.insert(point);
-            this.quadTreePoints.add(point);
-          }
-        }
-      }
-    }
-    addPoint(x: number, y: number) {
-      this.points.push({ x, y });
-    }
-
-    isNear(x: number, y: number, threshold: number): boolean {
-      return this.points.some(point =>
-        Math.sqrt((point.x - x) ** 2 + (point.y - y) ** 2) < threshold
-      );
-    }
-    containsPoint(point: Point): boolean {
-      return this.points.some(p => p.x === point.x && p.y === point.y);
-    }
-    containsQuadTreePoint(point: Point): boolean {
-      return this.quadTreePoints.has(point);
-    }
-    draw(bufferContext: CanvasRenderingContext2D): void {
-      if (this.points.length === 0) return;
-      if (this.actionType !== 'add') return;
-
-      bufferContext.beginPath();
-      bufferContext.lineWidth = this.brushSize;
-      bufferContext.lineCap = 'round';
-      bufferContext.lineJoin = 'round';
-      bufferContext.strokeStyle = this.color;
-      bufferContext.moveTo(this.points[0].x, this.points[0].y);
-
-      for (const point of this.points) {
-        bufferContext.lineTo(point.x, point.y);
-      }
-
-      bufferContext.stroke();
-      bufferContext.closePath();
-      updateMainCanvas()
-    }
-  }
   function setColor(newColor: string) {
-    currentColor = newColor;
+    currentDrawingOptions.color = newColor;
   }
   function setDrawingType(type: DrawingType) {
     currentType = type;
+    currentDrawingOptions = getCurrentOptions(type);
   }
   function setEraseThreshold(threshold: number) {
-    eraseThreshold = threshold;
+    currentDrawingOptions.brushSize = threshold;
   }
   function addPointToQuadTree(path: Path, x: number, y: number, lastX: number, lastY: number) {
     const distance = Math.sqrt((x - lastX) ** 2 + (y - lastY) ** 2);
@@ -348,7 +127,7 @@ function createBlackboard(el: HTMLCanvasElement) {
     let removedHash: string[] = undoStack.filter(stack => stack.pathAction === 'remove').map(stack => stack.hash)
     let parsedStack: HistoryStack[] = undoStack.filter(stack => !removedHash.includes(stack.hash))
     for (const drawable of parsedStack) {
-      if (pathArray[drawable.hash]) pathArray[drawable.hash].draw(bufferContext);
+      if (pathArray[drawable.hash]) pathArray[drawable.hash].draw(bufferContext, updateMainCanvas);
     }
     rebuildQuadTree(parsedStack)
     if (parsedStack.length === 0) {
@@ -374,7 +153,7 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
   }
   function setBrushSize(size: number) {
-    currentBrushSize = size;
+    currentDrawingOptions.brushSize = size;
   }
   function rebuildQuadTree(parsedStack: HistoryStack[]) {
     quadTreeRoot = new QuadTreeNode(canvasBoundary);
@@ -412,7 +191,8 @@ function createBlackboard(el: HTMLCanvasElement) {
     redrawCanvas();
   }
   async function eraseInQuadTree(x: number, y: number, width: number, height: number) {
-    const eraseArea = new Rectangle(x, y, width, height);
+    const halfSize = width / 2;
+    const eraseArea = new Rectangle(x - halfSize, y - halfSize, width, height);
     isQueryInProgress = true;
     const pointsToErase = await quadTreeRoot.query(eraseArea);
     isQueryInProgress = false;
@@ -422,25 +202,29 @@ function createBlackboard(el: HTMLCanvasElement) {
   el.addEventListener('mousedown', async (e) => {
     if (currentType === 'eraser' && !isQueryInProgress) {
       isErasing = true;
-      await eraseInQuadTree(e.offsetX, e.offsetY, eraseThreshold, eraseThreshold);
+      await eraseInQuadTree(e.offsetX, e.offsetY, currentDrawingOptions.brushSize, currentDrawingOptions.brushSize);
     }
     if (currentType === 'pen') {
       isDrawing = true;
       lastX = e.offsetX;
       lastY = e.offsetY;
-      currentPath = new Path();
-      currentPath.color = currentColor;
-      currentPath.brushSize = currentBrushSize;
+      currentPath = new Path(el, quadTreeRoot);
+      currentPath.setUpdateOptions(currentDrawingOptions);
       currentPath.addPoint(e.offsetX, e.offsetY);
       currentPath.insertQuadTree(e.offsetX, e.offsetY);
-      currentPath.draw(bufferContext);
+      currentPath.draw(bufferContext, updateMainCanvas);
     }
     el.addEventListener('mousemove', updateWithMouseMovement);
   });
   function drawCursor(x: number, y: number) {
     if (!context) return;
+    const brushSize = currentDrawingOptions.brushSize;
     context.beginPath();
-    context.arc(x, y, currentBrushSize / 2, 0, Math.PI * 2);
+    if (currentType === 'eraser') {
+      context.rect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
+    } else {
+      context.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+    }
     context.strokeStyle = '#000000';
     context.stroke();
     context.closePath();
@@ -469,10 +253,10 @@ function createBlackboard(el: HTMLCanvasElement) {
       addPointToQuadTree(currentPath, offsetX, offsetY, lastX, lastY)
       lastX = offsetX;
       lastY = offsetY;
-      currentPath.draw(bufferContext);
+      currentPath.draw(bufferContext, updateMainCanvas);
     }
     if (isErasing) {
-      await eraseInQuadTree(offsetX, offsetY, eraseThreshold, eraseThreshold);
+      await eraseInQuadTree(offsetX, offsetY, currentDrawingOptions.brushSize, currentDrawingOptions.brushSize);
     }
   }
   el.addEventListener('mouseup', (e) => {
@@ -501,10 +285,7 @@ function createBlackboard(el: HTMLCanvasElement) {
     return redoStack;
   }
   return {
-    data: {
-      color: currentColor,
-      brushSize: currentBrushSize,
-    },
+    data: currentDrawingOptions,
     drawQuadTreePointsInPaths,
     drawQuadTreeBoundary,
     drawQuadTreePoints,

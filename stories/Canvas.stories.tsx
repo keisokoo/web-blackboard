@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import React, { useEffect, useMemo } from 'react'
 import { createBlackboard } from '../src'
 import './canvas.css'
-import { HistoryStack } from '../src/createBlackboard'
 export const Demo = () => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const [methods, set_Methods] = React.useState<ReturnType<
