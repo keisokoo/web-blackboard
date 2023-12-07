@@ -1,5 +1,6 @@
 import generateHash from "../helper/generateHash";
 import { PathActionType } from "../types";
+import PathArrayType from "./PathArrayType";
 import PathData from "./PathData";
 import Point from "./Point";
 import QuadTreeNode from "./QuadTreeNode";
@@ -17,6 +18,7 @@ class Path {
   hash: string;
   actionType: PathActionType = 'add';
   originalHash: string = ''; // actionType이 edited일때, Path의 원본 hash
+  editedPathHashes = new Set<string>(); // actionType이 edited일때, Path의 원본 hash
   private quadTreeRoot: QuadTreeNode;
   private el: HTMLCanvasElement;
   constructor(el: HTMLCanvasElement, quadTreeRoot: QuadTreeNode, options?: Partial<PathData>) {
@@ -110,6 +112,17 @@ class Path {
   }
   containsQuadTreePoint(point: Point): boolean {
     return this.quadTreePoints.has(point);
+  }
+  async editedPathHashesAdd(point: Point, pathArray: PathArrayType) {
+    const intersectionPoints = await this.quadTreeRoot.query(new Rectangle(point.x, point.y, this.options.brushSize, this.options.brushSize))
+    for (const point of intersectionPoints) {
+      for (const path of Object.values(pathArray)) {
+        if (path instanceof Path && path.containsQuadTreePoint(point)) {
+          this.editedPathHashes.add(path.hash);
+        }
+      }
+    }
+    console.log('this.editedPathHashes', this.editedPathHashes)
   }
   draw(bufferContext: CanvasRenderingContext2D, callback: () => void): void {
     if (this.points.length === 0) return;

@@ -150,33 +150,6 @@ function createBlackboard(el: HTMLCanvasElement) {
     clonedPath.fromData(path.toData());
     return clonedPath;
   }
-  async function partialErase(x: number, y: number, brushSize: number, paths: PathArrayType) {
-    const eraseArea = new Rectangle(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
-    const pointsToErase = await quadTreeRoot.query(eraseArea);
-
-    // 포인트에 해당하는 Path 찾기
-    const pathsToEdit = Object.values(paths).filter(path =>
-      pointsToErase.some(point => path.containsQuadTreePoint(point))
-    );
-    console.log('pathsToEdit', pathsToEdit, eraseArea)
-    // 각 Path 수정 및 히스토리 업데이트
-    pathsToEdit.forEach(path => {
-      path.removePointsInArea(eraseArea);
-
-      // const currentPath = path;
-      // currentPath.actionType = 'edited'
-      // const editedPath = clonePath(currentPath); // 새로운 hash를 가진 복제본 생성
-      // editedPath.removePointsInArea(eraseArea);
-      // const regeneratedHash = editedPath.setEdited(currentPath.hash)
-      // undoStack.push({
-      //   hash: regeneratedHash,
-      //   pathAction: 'edited'
-      // });
-      // pathArray[regeneratedHash] = editedPath;
-    });
-    // 캔버스 다시 그리기
-    redrawCanvas();
-  }
   function redrawCanvas() {
     if (!bufferContext || !el) return;
     bufferContext.clearRect(0, 0, el.width, el.height);
@@ -268,10 +241,13 @@ function createBlackboard(el: HTMLCanvasElement) {
     if (currentType === 'pen' || currentType === 'partialEraser') {
       isDrawing = true;
       currentPath = new Path(el, quadTreeRoot);
-      if (currentType === 'partialEraser') currentPath.setEdited()
+      if (currentType === 'partialEraser') {
+        currentPath.setEdited()
+        currentPath.editedPathHashesAdd(new Point(offsetX, offsetY), pathArray)
+      }
       currentPath.setUpdateOptions(currentDrawingOptions);
       currentPath.addPoint(e.offsetX, e.offsetY);
-      currentPath.insertQuadTree(e.offsetX, e.offsetY);
+      if (currentType === 'pen') currentPath.insertQuadTree(e.offsetX, e.offsetY);
       currentPath.draw(bufferContext, updateMainCanvas);
     }
     el.addEventListener('mousemove', updateWithMouseMovement);
@@ -308,7 +284,11 @@ function createBlackboard(el: HTMLCanvasElement) {
       return;
     }
     if (isDrawing) {
-      addPointToQuadTree(currentPath, offsetX, offsetY, lastX, lastY)
+      if (currentType === 'pen') addPointToQuadTree(currentPath, offsetX, offsetY, lastX, lastY)
+      if (currentType === 'partialEraser') {
+        currentPath.addPoint(offsetX, offsetY)
+        currentPath.editedPathHashesAdd(new Point(offsetX, offsetY), pathArray)
+      }
       lastX = offsetX;
       lastY = offsetY;
       currentPath.draw(bufferContext, updateMainCanvas);
@@ -316,6 +296,24 @@ function createBlackboard(el: HTMLCanvasElement) {
     if (isErasing) {
       await eraseInQuadTree(offsetX, offsetY, currentDrawingOptions.brushSize, currentDrawingOptions.brushSize);
     }
+  }
+  function removeEmptyPath() {
+    const undoStackHashes = undoStack.map(stack => stack.hash)
+    Object.values(pathArray).filter(path => {
+      if (path instanceof Path && path.actionType === 'edited') {
+        const editedOriginalPaths = Array.from(path.editedPathHashes.values())
+        // editedOriginalPaths가 undoStackHashes에 포함되어 있지 않으면 pathArray에서 삭제 그리고 undoStack에서도 삭제
+        if (!editedOriginalPaths.some(hash => undoStackHashes.includes(hash))) {
+          delete pathArray[path.hash]
+          undoStack = undoStack.filter(stack => stack.hash !== path.hash)
+        }
+      } else {
+        // redoStack의 path의 hash가 undoStack에 없으면 pathArray에서 삭제
+        if (!undoStackHashes.includes(path.hash)) {
+          delete pathArray[path.hash]
+        }
+      }
+    })
   }
   el.addEventListener('mouseup', (e) => {
     if (isDrawing && currentPath) {
@@ -330,6 +328,10 @@ function createBlackboard(el: HTMLCanvasElement) {
       isErasing = false;
     }
     redoStack = [];
+    removeEmptyPath()
+    console.log('undoStack', undoStack)
+    console.log('redoStack', redoStack)
+    console.log('pathArray', pathArray)
     updateMainCanvas()
     el.removeEventListener('mousemove', updateWithMouseMovement);
   });
