@@ -30,12 +30,16 @@ export const Demo = () => {
         <button onClick={() => methods?.drawQuadTreeBoundary()}>
           TreeBoundary(debug)
         </button>
+        <button onClick={() => methods?.clear()}>clear</button>
         <button onClick={() => methods?.undo()}>undo</button>
         <button onClick={() => methods?.redo()}>redo</button>
         <button onClick={() => methods?.setDrawingType('eraser')}>
           eraser
         </button>
         <button onClick={() => methods?.setDrawingType('pen')}>pen</button>
+        <button onClick={() => methods?.setDrawingType('partialEraser')}>
+          partialEraser
+        </button>
       </div>
       <canvas ref={canvasRef} id="canvas" width="400" height="400"></canvas>
       <div className="controls-wrap">

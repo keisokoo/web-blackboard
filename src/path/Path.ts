@@ -3,9 +3,10 @@ import { PathActionType } from "../types";
 import PathData from "./PathData";
 import Point from "./Point";
 import QuadTreeNode from "./QuadTreeNode";
+import Rectangle from "./Rectangle";
 
 class Path {
-  private points: { x: number; y: number }[] = [];
+  private points: Point[] = [];
   public quadTreePoints: Set<Point> = new Set();
   private options: PathData = {
     points: [],
@@ -15,6 +16,7 @@ class Path {
   };
   hash: string;
   actionType: PathActionType = 'add';
+  originalHash: string = ''; // actionType이 edited일때, Path의 원본 hash
   private quadTreeRoot: QuadTreeNode;
   private el: HTMLCanvasElement;
   constructor(el: HTMLCanvasElement, quadTreeRoot: QuadTreeNode, options?: Partial<PathData>) {
@@ -31,6 +33,21 @@ class Path {
   setRemove() {
     this.actionType = 'remove';
   }
+  clearQuadTreePoints() {
+    this.quadTreePoints.clear();
+  }
+  getPoints() {
+    return this.points;
+  }
+  setEdited() {
+    this.actionType = 'edited';
+  }
+  // setEdited(originalHash: string) {
+  //   this.actionType = 'edited';
+  //   this.originalHash = originalHash;
+  //   this.hash = generateHash();
+  //   return this.hash;
+  // }
   toData(): PathData {
     return {
       points: this.points.slice(),
@@ -74,7 +91,15 @@ class Path {
   addPoint(x: number, y: number) {
     this.points.push({ x, y });
   }
-
+  removePointsInArea(eraseArea: Rectangle) {
+    const erasedArea = this.points.filter(point => {
+      return eraseArea.contains(point)
+    });
+    this.points = this.points.filter(point => {
+      return !eraseArea.contains(point)
+    });
+    console.log('erasedArea', erasedArea)
+  }
   isNear(x: number, y: number, threshold: number): boolean {
     return this.points.some(point =>
       Math.sqrt((point.x - x) ** 2 + (point.y - y) ** 2) < threshold
@@ -88,12 +113,18 @@ class Path {
   }
   draw(bufferContext: CanvasRenderingContext2D, callback: () => void): void {
     if (this.points.length === 0) return;
-    if (this.actionType !== 'add') return;
-
+    if (this.actionType === 'remove') return;
+    if (this.actionType === 'edited') {
+      bufferContext.globalCompositeOperation = 'destination-out';
+      bufferContext.lineCap = 'square';
+      bufferContext.lineJoin = 'bevel';
+    } else if (this.actionType === 'add') {
+      bufferContext.globalCompositeOperation = 'source-over';
+      bufferContext.lineCap = 'round';
+      bufferContext.lineJoin = 'round';
+    }
     bufferContext.beginPath();
     bufferContext.lineWidth = this.options.brushSize;
-    bufferContext.lineCap = 'round';
-    bufferContext.lineJoin = 'round';
     bufferContext.strokeStyle = this.options.color;
     bufferContext.moveTo(this.points[0].x, this.points[0].y);
 

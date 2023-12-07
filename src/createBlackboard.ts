@@ -4,12 +4,13 @@ import QuadTreeNode from "./path/QuadTreeNode";
 import BrushOptions from "./brushes/BrushOptions";
 import Eraser from "./brushes/Eraser";
 import Pen from "./brushes/Pen";
-import { DrawingType, HistoryStack, PathActionType } from "./types";
+import { DrawingType, HistoryStack } from "./types";
 import Path from "./path/Path";
 import PathArrayType from "./path/PathArrayType";
+import PartialEraser from "./brushes/PartialEraser";
+import generateHash from "./helper/generateHash";
 
 function createBlackboard(el: HTMLCanvasElement) {
-
   if (!el || !(el instanceof HTMLCanvasElement)) {
     throw new Error('Canvas element not found');
   }
@@ -24,6 +25,8 @@ function createBlackboard(el: HTMLCanvasElement) {
   if (!bufferContext) {
     throw new Error('Canvas context not found');
   }
+  let offsetX = 0;
+  let offsetY = 0;
   let currentType: DrawingType = 'pen'
   let undoStack: HistoryStack[] = [];
   let redoStack: HistoryStack[] = [];
@@ -31,12 +34,14 @@ function createBlackboard(el: HTMLCanvasElement) {
   function getCurrentOptions(type: DrawingType = 'pen'): BrushOptions {
     if (type === 'pen') return pen.options;
     if (type === 'eraser') return eraser.options;
+    if (type === 'partialEraser') return partialEraser.options;
     return pen.options;
   }
   let isDrawing = false;
   let isErasing = false;
   let pen = new Pen();
   let eraser = new Eraser();
+  let partialEraser = new PartialEraser();
   let currentPath: Path | null = null;
   let currentDrawingOptions = getCurrentOptions(currentType);
 
@@ -47,7 +52,13 @@ function createBlackboard(el: HTMLCanvasElement) {
 
   const canvasBoundary = new Rectangle(0, 0, el.width, el.height);
   let quadTreeRoot = new QuadTreeNode(canvasBoundary);
-
+  function allClear() {
+    undoStack = [];
+    redoStack = [];
+    pathArray = {};
+    quadTreeRoot = new QuadTreeNode(canvasBoundary);
+    redrawCanvas();
+  }
   function updateMainCanvas() {
     if (!context) return;
     context.clearRect(0, 0, el.width, el.height);
@@ -60,12 +71,10 @@ function createBlackboard(el: HTMLCanvasElement) {
 
     node.points.forEach(point => {
       context.fillStyle = 'red';
-      context.globalAlpha = 0.5;
       context.beginPath();
       context.arc(point.x, point.y, 0.5, 0, Math.PI * 2);
       context.fill();
     });
-    context.globalAlpha = 1;
 
     if (node.divided) {
       node.children.forEach(child => drawQuadTreePoints(child));
@@ -109,6 +118,22 @@ function createBlackboard(el: HTMLCanvasElement) {
   function setEraseThreshold(threshold: number) {
     currentDrawingOptions.brushSize = threshold;
   }
+  function recreatePointToQuadTree(x: number, y: number, brushSize: number) {
+    const radius = brushSize / 2;
+    const radiusSquared = radius * radius;
+    const step = Math.max(1, Math.ceil(radius / 10));
+
+    for (let dx = -radius; dx <= radius; dx += step) {
+      for (let dy = -radius; dy <= radius; dy += step) {
+        if (dx * dx + dy * dy <= radiusSquared) {
+          const pointX = x + dx;
+          const pointY = y + dy;
+          const point = new Point(pointX, pointY);
+          quadTreeRoot.insert(point);
+        }
+      }
+    }
+  }
   function addPointToQuadTree(path: Path, x: number, y: number, lastX: number, lastY: number) {
     const distance = Math.sqrt((x - lastX) ** 2 + (y - lastY) ** 2);
     const steps = Math.ceil(distance / 2);
@@ -120,7 +145,38 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
     path.addPoint(x, y)
   }
+  function clonePath(path: Path) {
+    const clonedPath = new Path(el, quadTreeRoot);
+    clonedPath.fromData(path.toData());
+    return clonedPath;
+  }
+  async function partialErase(x: number, y: number, brushSize: number, paths: PathArrayType) {
+    const eraseArea = new Rectangle(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
+    const pointsToErase = await quadTreeRoot.query(eraseArea);
 
+    // 포인트에 해당하는 Path 찾기
+    const pathsToEdit = Object.values(paths).filter(path =>
+      pointsToErase.some(point => path.containsQuadTreePoint(point))
+    );
+    console.log('pathsToEdit', pathsToEdit, eraseArea)
+    // 각 Path 수정 및 히스토리 업데이트
+    pathsToEdit.forEach(path => {
+      path.removePointsInArea(eraseArea);
+
+      // const currentPath = path;
+      // currentPath.actionType = 'edited'
+      // const editedPath = clonePath(currentPath); // 새로운 hash를 가진 복제본 생성
+      // editedPath.removePointsInArea(eraseArea);
+      // const regeneratedHash = editedPath.setEdited(currentPath.hash)
+      // undoStack.push({
+      //   hash: regeneratedHash,
+      //   pathAction: 'edited'
+      // });
+      // pathArray[regeneratedHash] = editedPath;
+    });
+    // 캔버스 다시 그리기
+    redrawCanvas();
+  }
   function redrawCanvas() {
     if (!bufferContext || !el) return;
     bufferContext.clearRect(0, 0, el.width, el.height);
@@ -200,15 +256,19 @@ function createBlackboard(el: HTMLCanvasElement) {
   }
   bufferContext.clearRect(0, 0, el.width, el.height);
   el.addEventListener('mousedown', async (e) => {
+    lastX = e.offsetX;
+    lastY = e.offsetY;
     if (currentType === 'eraser' && !isQueryInProgress) {
       isErasing = true;
       await eraseInQuadTree(e.offsetX, e.offsetY, currentDrawingOptions.brushSize, currentDrawingOptions.brushSize);
     }
-    if (currentType === 'pen') {
+    // if (currentType === 'partialEraser') {
+    //   partialErase(e.offsetX, e.offsetY, currentDrawingOptions.brushSize, pathArray);
+    // }
+    if (currentType === 'pen' || currentType === 'partialEraser') {
       isDrawing = true;
-      lastX = e.offsetX;
-      lastY = e.offsetY;
       currentPath = new Path(el, quadTreeRoot);
+      if (currentType === 'partialEraser') currentPath.setEdited()
       currentPath.setUpdateOptions(currentDrawingOptions);
       currentPath.addPoint(e.offsetX, e.offsetY);
       currentPath.insertQuadTree(e.offsetX, e.offsetY);
@@ -220,7 +280,7 @@ function createBlackboard(el: HTMLCanvasElement) {
     if (!context) return;
     const brushSize = currentDrawingOptions.brushSize;
     context.beginPath();
-    if (currentType === 'eraser') {
+    if (currentType === 'eraser' || currentType === 'partialEraser') {
       context.rect(x - brushSize / 2, y - brushSize / 2, brushSize, brushSize);
     } else {
       context.arc(x, y, brushSize / 2, 0, Math.PI * 2);
@@ -234,8 +294,6 @@ function createBlackboard(el: HTMLCanvasElement) {
     currentMousePosition.y = e.offsetY;
     if (!isDrawing) updateMainCanvas();
   });
-  let offsetX = 0;
-  let offsetY = 0;
   function updateWithMouseMovement(e: MouseEvent) {
     if (e.buttons !== 1) {
       el.removeEventListener('mousemove', updateWithMouseMovement);
@@ -297,12 +355,7 @@ function createBlackboard(el: HTMLCanvasElement) {
     redo,
     setBrushSize,
     setColor,
-    clear() {
-      if (!bufferContext) {
-        return;
-      }
-      bufferContext.clearRect(0, 0, el.width, el.height);
-    },
+    clear: allClear,
     toDataURL() {
       return el.toDataURL();
     },

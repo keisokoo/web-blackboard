@@ -71,6 +71,11 @@ class QuadTreeNode {
 
     this.divided = true;
   }
+  clear() {
+    this.points = [];
+    this.divided = false;
+    this.children = [];
+  }
   remove(point: Point): boolean {
     if (!this.boundary.contains(point)) {
       return false;
