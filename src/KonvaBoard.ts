@@ -118,7 +118,7 @@ class KonvaBoard {
         // round cap for smoother lines
         lineCap: 'round',
         lineJoin: 'round',
-        hitStrokeWidth: this.brushes['brush'].brushSize,
+        hitStrokeWidth: this.brushes[this.mode].brushSize,
         // add point twice, so we have some drawings even on a simple click
         points: [pos.x, pos.y, pos.x, pos.y],
       });
