@@ -7793,6 +7793,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"konva@npm:^9.2.3":
+  version: 9.2.3
+  resolution: "konva@npm:9.2.3"
+  checksum: 2d98b8fdd2ac2323b60caa5948b817bed39f8c7beb54aee14408199d200b69b94e86cf73b080e1aff239a6627571234d87075430e9527eda6017fa90e7495af2
+  languageName: node
+  linkType: hard
+
 "lazy-universal-dotenv@npm:^4.0.0":
   version: 4.0.0
   resolution: "lazy-universal-dotenv@npm:4.0.0"
@@ -9721,15 +9728,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rxjs@npm:^7.8.1":
-  version: 7.8.1
-  resolution: "rxjs@npm:7.8.1"
-  dependencies:
-    tslib: "npm:^2.1.0"
-  checksum: 3c49c1ecd66170b175c9cacf5cef67f8914dcbc7cd0162855538d365c83fea631167cacb644b3ce533b2ea0e9a4d0b12175186985f89d75abe73dbd8f7f06f68
-  languageName: node
-  linkType: hard
-
 "safe-buffer@npm:5.1.2, safe-buffer@npm:~5.1.0, safe-buffer@npm:~5.1.1":
   version: 5.1.2
   resolution: "safe-buffer@npm:5.1.2"
@@ -10905,9 +10903,9 @@ __metadata:
     "@types/react": "npm:^18"
     "@types/react-dom": "npm:^18"
     babel-loader: "npm:^9.1.3"
+    konva: "npm:^9.2.3"
     react: "npm:^18.2.0"
     react-dom: "npm:^18.2.0"
-    rxjs: "npm:^7.8.1"
     storybook: "npm:^7.6.2"
     ts-loader: "npm:^9.5.1"
     typescript: "npm:^5.3.2"

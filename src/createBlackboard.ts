@@ -353,22 +353,10 @@ function createBlackboard(el: HTMLCanvasElement) {
     setBrushSize,
     setColor,
     clear: allClear,
-    toDataURL() {
-      return el.toDataURL();
-    },
-    toBlob(callback: (blob: Blob | null) => void, type?: string, quality?: any) {
-      el.toBlob(callback, type, quality);
-    },
     resize(width: number, height: number) {
       el.width = width;
       el.height = height;
     },
-    setWidth(width: number) {
-      el.width = width;
-    },
-    setHeight(height: number) {
-      el.height = height;
-    }
   };
 };
 export default createBlackboard;

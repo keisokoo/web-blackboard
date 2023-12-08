@@ -16,6 +16,8 @@ export const Demo = () => {
   useEffect(() => {
     if (!canvasRef.current) return
     const canvas = canvasRef.current
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
     const methods = createBlackboard(canvas)
     set_Methods(methods)
     set_canvasData(methods.data)

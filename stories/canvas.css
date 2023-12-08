@@ -14,7 +14,7 @@
 .canvas-wrap canvas {
   border: 1px solid #ccc;
   border-radius: 4px;
-  cursor: none;
+  /* cursor: none; */
 }
 .controls-wrap {
   display: flex;
@@ -22,4 +22,11 @@
   align-items: center;
   flex-direction: column;
   gap: 1rem;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #f0f0f0;
 }
