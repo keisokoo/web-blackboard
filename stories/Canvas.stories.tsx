@@ -41,7 +41,7 @@ export const Demo = () => {
           partialEraser
         </button>
       </div>
-      <canvas ref={canvasRef} id="canvas" width="400" height="400"></canvas>
+      <canvas ref={canvasRef} id="canvas" width="800" height="800"></canvas>
       <div className="controls-wrap">
         <div className="controls">
           <label htmlFor="color">color</label>

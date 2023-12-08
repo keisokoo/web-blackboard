@@ -145,11 +145,6 @@ function createBlackboard(el: HTMLCanvasElement) {
     }
     path.addPoint(x, y)
   }
-  function clonePath(path: Path) {
-    const clonedPath = new Path(el, quadTreeRoot);
-    clonedPath.fromData(path.toData());
-    return clonedPath;
-  }
   function redrawCanvas() {
     if (!bufferContext || !el) return;
     bufferContext.clearRect(0, 0, el.width, el.height);
