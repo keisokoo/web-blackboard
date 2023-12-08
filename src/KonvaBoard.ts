@@ -3,7 +3,7 @@ import generateHash from "./helper/generateHash";
 
 type ModeType = 'brush' | 'eraser' | 'erase-line';
 class BrushOptions {
-  brushSize: number = 10;
+  brushSize: number = 55;
   color: string = '#ffffff';
   constructor(options?: Partial<BrushOptions>) {
     if (options) {
@@ -26,6 +26,7 @@ class BrushOptions {
 }
 class KonvaBoard {
   el: HTMLDivElement;
+  cursorCanvas: HTMLCanvasElement;
   private width: number;
   private height: number;
   private stage: Konva.Stage;
@@ -44,7 +45,7 @@ class KonvaBoard {
         color: '#ffffff'
       }),
       'erase-line': new BrushOptions({
-        brushSize: 10,
+        brushSize: 5,
         color: '#ffffff'
       })
     }
@@ -56,10 +57,13 @@ class KonvaBoard {
   cb: (data: string) => void;
 
   constructor(el: HTMLDivElement, cb: (data: string) => void) {
+    this.cursorCanvas = document.querySelector('#cursor') ? document.querySelector('#cursor')! : document.createElement('canvas');
+    this.cursorCanvas.id = 'cursor';
+    this.cursorCanvas.style.display = 'none';
     this.cb = cb;
     this.el = el;
     this.width = window.innerWidth;
-    this.height = window.innerHeight - 25;
+    this.height = window.innerHeight;
 
     this.stage = new Konva.Stage({
       container: el,
@@ -73,7 +77,32 @@ class KonvaBoard {
     this.isPaint = false;
 
     this.init()
+    this.modeChange(this.mode)
   }
+
+  drawCursor(x: number, y: number) {
+    if (!this.el) return;
+    if (!this.currentBrush) return;
+    const brushSize = this.currentBrush.brushSize;
+    const canvas = this.cursorCanvas;
+    canvas.width = brushSize;
+    canvas.height = brushSize;
+    this.cursorCanvas.style.display = 'block';
+    canvas.style.position = 'fixed';
+    canvas.style.zIndex = '99999';
+    canvas.style.pointerEvents = 'none';
+    canvas.style.top = `${y + this.el.offsetTop}px`;
+    canvas.style.left = `${x - this.el.offsetLeft}px`;
+    canvas.style.transform = 'translate(-50%, -50%)';
+    if (!canvas) return;
+    canvas.style.border = '1px solid #000000';
+    if (this.mode === 'eraser' || this.mode === 'erase-line') {
+      canvas.style.borderRadius = '0px';
+    } else {
+      canvas.style.borderRadius = '50%';
+    }
+  }
+
   init() {
     this.stage.on('pointerdown', (e) => {
       this.isPaint = true;
@@ -83,13 +112,13 @@ class KonvaBoard {
       this.lastLine = new Konva.Line({
         id: `${this.mode}-${generateHash()}`,
         stroke: '#df4b26',
-        strokeWidth: 5,
+        strokeWidth: this.brushes[this.mode].brushSize,
         globalCompositeOperation:
           this.mode === 'brush' ? 'source-over' : 'destination-out',
         // round cap for smoother lines
         lineCap: 'round',
         lineJoin: 'round',
-        hitStrokeWidth: 40,
+        hitStrokeWidth: this.brushes['brush'].brushSize,
         // add point twice, so we have some drawings even on a simple click
         points: [pos.x, pos.y, pos.x, pos.y],
       });
@@ -117,13 +146,13 @@ class KonvaBoard {
 
     // and core function - drawing
     this.stage.on('pointermove', (e) => {
+      this.drawCursor(e.evt.offsetX, e.evt.offsetY);
       if (!this.isPaint) {
         return;
       }
       if (this.isEraseLine) {
         return;
       }
-
       // prevent scrolling on touch devices
       e.evt.preventDefault();
 
@@ -136,6 +165,7 @@ class KonvaBoard {
   modeChange(newMode: ModeType) {
     this.mode = newMode;
     this.currentBrush = this.brushes[this.mode];
+    // this.createBrushCursor(this.currentBrush.brushSize);
     return this.currentBrush.getBrushOptions();
   }
 }

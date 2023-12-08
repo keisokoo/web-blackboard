@@ -16,7 +16,8 @@ export const Demo = () => {
   }, [])
   return (
     <div className="canvas-wrap">
-      <div>{canvasData}</div>
+      <canvas id="cursor" width="50" height="50"></canvas>
+      <div className="msg">{canvasData}</div>
       {methods && (
         <div className="buttons">
           <button
