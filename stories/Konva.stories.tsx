@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { KonvaBoard } from '../src'
+import { KonvaBoard, HistoryStack } from '../src'
 import { Meta } from '@storybook/react'
 import './canvas.css'
 
@@ -16,6 +16,9 @@ export const Demo = () => {
     undo: number
     redo: number
   }>({ undo: 0, redo: 0 })
+  const [historyStack, set_historyStack] = React.useState<
+    HistoryStack[] | null
+  >(null)
   useEffect(() => {
     if (!containerRef.current) return
     const konvaBoard = new KonvaBoard(containerRef.current, (values) => {
@@ -24,6 +27,7 @@ export const Demo = () => {
         undo: values.data.undoStack.length,
         redo: values.data.redoStack.length,
       })
+      set_historyStack(values.data.historyStack)
     })
     set_canvasData(konvaBoard.currentBrush.getBrushOptions())
     set_Methods(konvaBoard)
@@ -35,18 +39,10 @@ export const Demo = () => {
         <div className="control-box">
           <div className="buttons">
             <button
+              disabled={!historyStack || historyStack.length === 0}
               onClick={() => {
-                console.log(
-                  'methods.getHistoryStack()',
-                  methods.getHistoryStack()
-                )
-              }}
-            >
-              getHistoryStack
-            </button>
-            <button
-              onClick={() => {
-                methods.playHistoryStack()
+                if (!historyStack) return
+                methods.playHistoryStack(historyStack)
               }}
             >
               playHistoryStack

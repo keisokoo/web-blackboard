@@ -29,17 +29,17 @@ type TimelineType = {
   start: number,
   end: number
 }
-type HistoryStack = {
+type StackType = {
   id: string,
   mode: ModeType,
   action: 'add' | 'remove',
   startAt: number,
   duration: number
 }
-type ControlStack = HistoryStack & {
+type ControlStack = StackType & {
   lines: Konva.Line[]
 }
-type PlayStack = HistoryStack & {
+export type HistoryStack = StackType & {
   options: LineConfig[]
 }
 const eraseLineDefault = {
@@ -49,11 +49,12 @@ const eraseLineDefault = {
 type CallbackData = {
   message: string,
   data: {
-    mode: ModeType,
-    brushSize: number,
+    mode: ModeType
+    brushSize: number
     color: string
-    undoStack: ControlStack[],
+    undoStack: ControlStack[]
     redoStack: ControlStack[]
+    historyStack: HistoryStack[]
   }
 }
 class KonvaBoard {
@@ -68,7 +69,7 @@ class KonvaBoard {
   private isEraseLine: boolean = false;
   private undoStack: ControlStack[] = [];
   private redoStack: ControlStack[] = [];
-  private historyStack: PlayStack[] = [];
+  private historyStack: HistoryStack[] = [];
   private lastRemovedLines: Set<Konva.Line> = new Set();
   private timeline: TimelineType = {
     start: 0,
@@ -126,7 +127,8 @@ class KonvaBoard {
         brushSize: this.currentBrush.brushSize,
         color: this.currentBrush.color,
         undoStack: this.undoStack,
-        redoStack: this.redoStack
+        redoStack: this.redoStack,
+        historyStack: this.historyStack
       }
     }
   }
@@ -143,10 +145,8 @@ class KonvaBoard {
     this.timeline.end = endNow;
     const startAt = this.timeline.start;
     const duration = this.timeline.end - this.timeline.start;
-    const stack: HistoryStack = { id: `stack-${generateHash()}`, mode: this.mode, action: this.mode === 'delete' ? 'remove' : 'add', startAt, duration }
+    const stack: StackType = { id: `stack-${generateHash()}`, mode: this.mode, action: this.mode === 'delete' ? 'remove' : 'add', startAt, duration }
     this.undoStack.push({ ...stack, lines });
-    if (this.mode === 'delete') {
-    }
     this.historyStack.push({ ...stack, options: this.copyLineOptions(lines) });
     this.updated('appendStack');
     this.timeline = {
@@ -172,10 +172,10 @@ class KonvaBoard {
       last.action = 'remove';
       this.redoStack.push(last);
     }
-    const forHistoryStack = { ...last }
-    forHistoryStack.startAt = Date.now();
-    forHistoryStack.duration = 0;
-    this.historyStack.push({ ...forHistoryStack, options: this.copyLineOptions(forHistoryStack.lines) });
+    const forStackType = { ...last }
+    forStackType.startAt = Date.now();
+    forStackType.duration = 0;
+    this.historyStack.push({ ...forStackType, options: this.copyLineOptions(forStackType.lines) });
     this.updated('undo');
   }
   redo() {
@@ -196,10 +196,10 @@ class KonvaBoard {
       last.action = 'remove';
       this.undoStack.push(last);
     }
-    let forHistoryStack = { ...last }
-    forHistoryStack.startAt = Date.now();
-    forHistoryStack.duration = 0;
-    this.historyStack.push({ ...forHistoryStack, options: this.copyLineOptions(forHistoryStack.lines) });
+    let forStackType = { ...last }
+    forStackType.startAt = Date.now();
+    forStackType.duration = 0;
+    this.historyStack.push({ ...forStackType, options: this.copyLineOptions(forStackType.lines) });
     this.updated('redo');
   }
   private cursorStyle() {
@@ -230,8 +230,8 @@ class KonvaBoard {
     }) as LineConfig[];
     return lineOptions
   }
-  playHistoryStack(historyStack?: PlayStack[]) {
-    const playStack = historyStack ?? this.historyStack;
+  playHistoryStack(historyStack: HistoryStack[]) {
+    const playStack = historyStack ?? [];
     if (playStack.length === 0) return;
     this.undoStack = [];
     this.redoStack = [];
@@ -251,6 +251,9 @@ class KonvaBoard {
             this.bindHitLineEvent(newLine);
             this.layer.add(newLine);
           })
+        }
+        if (index === playStack.length - 1) {
+          this.updated('replay history Stack')
         }
       }, timeOffset)
     })
@@ -280,18 +283,18 @@ class KonvaBoard {
       const id = e.target.id();
       const line = e.target as Konva.Line;
       if (this.mode === 'delete' && id.startsWith('brush-') && line) {
-        this.lastRemovedLines.add(line.clone() as Konva.Line);
         line.remove()
         this.updated('remove');
+        this.appendStack([line]);
       }
     });
     line.on('pointerover', (e) => {
       const id = e.target.id();
       const line = e.target as Konva.Line;
       if (this.mode === 'delete' && id.startsWith('brush-') && this.isEraseLine && line) {
-        this.lastRemovedLines.add(line.clone() as Konva.Line);
         line.remove()
         this.updated('remove');
+        this.appendStack([line]);
       }
     });
     this.lastLine.on('pointerout', () => {
@@ -300,7 +303,7 @@ class KonvaBoard {
   }
   init() {
     this.cursorStyle();
-    this.stage.on('pointerdown', (e) => {
+    this.stage.on('pointerdown', () => {
       this.lastRemovedLines.clear();
       this.isPaint = true;
       if (this.mode === 'delete') {
@@ -330,7 +333,9 @@ class KonvaBoard {
       this.isPaint = false;
       this.isEraseLine = false;
       this.updated('pointerup');
-      this.appendStack(this.mode === 'delete' ? Array.from(this.lastRemovedLines) : [this.lastLine]);
+      if (this.mode !== 'delete') {
+        this.appendStack([this.lastLine]);
+      }
     });
     this.el.addEventListener('pointerleave', () => {
       this.isPaint = false;
