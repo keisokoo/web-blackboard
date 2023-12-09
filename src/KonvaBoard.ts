@@ -1,5 +1,6 @@
 import Konva from "konva";
 import generateHash from "./helper/generateHash";
+import { LineConfig } from "konva/lib/shapes/Line";
 
 type ModeType = 'brush' | 'eraser' | 'delete';
 class BrushOptions {
@@ -24,11 +25,22 @@ class BrushOptions {
     }
   }
 }
+type TimelineType = {
+  start: number,
+  end: number
+}
 type HistoryStack = {
   id: string,
-  lines: Konva.Line[],
   mode: ModeType,
-  action: 'add' | 'remove'
+  action: 'add' | 'remove',
+  startAt: number,
+  duration: number
+}
+type ControlStack = HistoryStack & {
+  lines: Konva.Line[]
+}
+type PlayStack = HistoryStack & {
+  options: LineConfig[]
 }
 const eraseLineDefault = {
   brushSize: 5,
@@ -40,8 +52,8 @@ type CallbackData = {
     mode: ModeType,
     brushSize: number,
     color: string
-    undoStack: HistoryStack[],
-    redoStack: HistoryStack[]
+    undoStack: ControlStack[],
+    redoStack: ControlStack[]
   }
 }
 class KonvaBoard {
@@ -54,9 +66,14 @@ class KonvaBoard {
   private isPaint: boolean;
   private mode: ModeType = 'brush';
   private isEraseLine: boolean = false;
-  private undoStack: HistoryStack[] = [];
-  private redoStack: HistoryStack[] = [];
+  private undoStack: ControlStack[] = [];
+  private redoStack: ControlStack[] = [];
+  private historyStack: PlayStack[] = [];
   private lastRemovedLines: Set<Konva.Line> = new Set();
+  private timeline: TimelineType = {
+    start: 0,
+    end: 0
+  };
   brushes: {
     brush: BrushOptions,
     eraser: BrushOptions,
@@ -70,10 +87,7 @@ class KonvaBoard {
       'delete': new BrushOptions(eraseLineDefault)
     }
   currentBrush: BrushOptions = this.brushes[this.mode];
-
   private lastLine: Konva.Line = new Konva.Line();
-  lines: Konva.Line[] = [];
-
   cb: (data: CallbackData) => void;
 
   constructor(el: HTMLDivElement, cb: (data: CallbackData) => void) {
@@ -116,15 +130,29 @@ class KonvaBoard {
       }
     }
   }
-  updated(message?: string) {
+  updated(message?: string, removeRedoStack: boolean = false) {
+    if (removeRedoStack) {
+      this.redoStack = [];
+    }
     this.cb(this.getCurrentData(message));
   }
   appendStack(lines: Konva.Line[]) {
     if (!lines || lines.length < 0) return;
-    const stack: HistoryStack = { id: `stack-${generateHash()}`, lines, mode: this.mode, action: this.mode === 'delete' ? 'remove' : 'add' }
-
-    this.undoStack.push(stack);
+    const endNow = Date.now();
+    if (!this.timeline.start) this.timeline.start = endNow;
+    this.timeline.end = endNow;
+    const startAt = this.timeline.start;
+    const duration = this.timeline.end - this.timeline.start;
+    const stack: HistoryStack = { id: `stack-${generateHash()}`, mode: this.mode, action: this.mode === 'delete' ? 'remove' : 'add', startAt, duration }
+    this.undoStack.push({ ...stack, lines });
+    if (this.mode === 'delete') {
+    }
+    this.historyStack.push({ ...stack, options: this.copyLineOptions(lines) });
     this.updated('appendStack');
+    this.timeline = {
+      start: 0,
+      end: 0
+    };
   }
   undo() {
     if (this.undoStack.length === 0) return;
@@ -144,6 +172,10 @@ class KonvaBoard {
       last.action = 'remove';
       this.redoStack.push(last);
     }
+    const forHistoryStack = { ...last }
+    forHistoryStack.startAt = Date.now();
+    forHistoryStack.duration = 0;
+    this.historyStack.push({ ...forHistoryStack, options: this.copyLineOptions(forHistoryStack.lines) });
     this.updated('undo');
   }
   redo() {
@@ -164,6 +196,10 @@ class KonvaBoard {
       last.action = 'remove';
       this.undoStack.push(last);
     }
+    let forHistoryStack = { ...last }
+    forHistoryStack.startAt = Date.now();
+    forHistoryStack.duration = 0;
+    this.historyStack.push({ ...forHistoryStack, options: this.copyLineOptions(forHistoryStack.lines) });
     this.updated('redo');
   }
   private cursorStyle() {
@@ -175,6 +211,49 @@ class KonvaBoard {
   }
   hideCursor() {
     this.cursor.style.display = 'none';
+  }
+  getHistoryStack() {
+    return this.historyStack;
+  }
+  copyLineOptions(lines: Konva.Line[]): LineConfig[] {
+    const lineOptions = lines.map(line => {
+      return {
+        id: line.id(),
+        stroke: line.stroke(),
+        strokeWidth: line.strokeWidth(),
+        globalCompositeOperation: line.globalCompositeOperation(),
+        lineCap: line.lineCap(),
+        lineJoin: line.lineJoin(),
+        hitStrokeWidth: line.hitStrokeWidth(),
+        points: line.points()
+      }
+    }) as LineConfig[];
+    return lineOptions
+  }
+  playHistoryStack(historyStack?: PlayStack[]) {
+    const playStack = historyStack ?? this.historyStack;
+    if (playStack.length === 0) return;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.updated('replay history Stack', true);
+    this.layer.destroyChildren();
+    let initialTime = playStack[0].startAt;
+    playStack.forEach((stack, index) => {
+      let timeOffset = stack.startAt - initialTime;
+      setTimeout(() => {
+        if (stack.action === 'remove') {
+          stack.options.forEach(option => {
+            this.layer.findOne(`#${option.id}`)?.remove();
+          })
+        } else {
+          stack.options.forEach(option => {
+            const newLine = new Konva.Line(option as LineConfig)
+            this.bindHitLineEvent(newLine);
+            this.layer.add(newLine);
+          })
+        }
+      }, timeOffset)
+    })
   }
   drawCursor(x: number, y: number) {
     if (!this.el) return;
@@ -196,7 +275,29 @@ class KonvaBoard {
       this.cursor.style.borderRadius = '50%';
     }
   }
-
+  bindHitLineEvent(line: Konva.Line) {
+    line.on('pointerdown', (e) => {
+      const id = e.target.id();
+      const line = e.target as Konva.Line;
+      if (this.mode === 'delete' && id.startsWith('brush-') && line) {
+        this.lastRemovedLines.add(line.clone() as Konva.Line);
+        line.remove()
+        this.updated('remove');
+      }
+    });
+    line.on('pointerover', (e) => {
+      const id = e.target.id();
+      const line = e.target as Konva.Line;
+      if (this.mode === 'delete' && id.startsWith('brush-') && this.isEraseLine && line) {
+        this.lastRemovedLines.add(line.clone() as Konva.Line);
+        line.remove()
+        this.updated('remove');
+      }
+    });
+    this.lastLine.on('pointerout', () => {
+      this.updated('pointerout');
+    });
+  }
   init() {
     this.cursorStyle();
     this.stage.on('pointerdown', (e) => {
@@ -206,6 +307,7 @@ class KonvaBoard {
         this.isEraseLine = true;
         return
       }
+      this.timeline.start = Date.now();
       const pos = this.stage.getPointerPosition();
       if (!pos) return;
       this.lastLine = new Konva.Line({
@@ -221,21 +323,8 @@ class KonvaBoard {
       });
       this.layer.add(this.lastLine);
 
-      this.lastLine.on('pointerover', (e) => {
-        const id = e.target.id();
-        const line = this.lines.find(line => line.id() === id);
-        if (this.mode === 'delete' && id.startsWith('brush-') && this.isEraseLine && line) {
-          this.lastRemovedLines.add(line);
-          e.target.remove()
-        } else {
-          this.updated('pointerover');  // debug
-        }
-      });
-      this.lastLine.on('pointerout', () => {
-        this.updated('pointerout');  // debug
-      });
-      this.lines.push(this.lastLine);
-      this.updated('pointerdown');
+      this.bindHitLineEvent(this.lastLine);
+      this.updated('pointerdown', true);
     });
     this.stage.on('pointerup', () => {
       this.isPaint = false;

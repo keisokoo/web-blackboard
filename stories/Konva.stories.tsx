@@ -35,6 +35,23 @@ export const Demo = () => {
         <div className="control-box">
           <div className="buttons">
             <button
+              onClick={() => {
+                console.log(
+                  'methods.getHistoryStack()',
+                  methods.getHistoryStack()
+                )
+              }}
+            >
+              getHistoryStack
+            </button>
+            <button
+              onClick={() => {
+                methods.playHistoryStack()
+              }}
+            >
+              playHistoryStack
+            </button>
+            <button
               disabled={stackLength.undo === 0}
               onClick={() => {
                 methods.undo()
@@ -77,23 +94,40 @@ export const Demo = () => {
             >
               delete
             </button>
-            <div className="controls">
-              <input
-                disabled={currentMode === 'delete'}
-                type="color"
-                id="color"
-                name="color"
-                value={canvasData.color}
-                onChange={(e) => {
-                  const changed = methods.setColor(e.target.value)
-                  set_canvasData(changed)
+            <div className="controls flex-center">
+              <label
+                htmlFor="color"
+                className="brush-style"
+                style={{
+                  backgroundColor: canvasData.color,
+                  width: canvasData.brushSize + 'px',
+                  height: canvasData.brushSize + 'px',
+                  borderRadius:
+                    currentMode === 'brush'
+                      ? canvasData.brushSize + 'px'
+                      : '0px',
                 }}
-              />
+              >
+                <input
+                  disabled={currentMode === 'delete'}
+                  type="color"
+                  id="color"
+                  name="color"
+                  value={canvasData.color}
+                  onChange={(e) => {
+                    const changed = methods.setColor(e.target.value)
+                    set_canvasData(changed)
+                  }}
+                />
+              </label>
             </div>
-            <div className="controls">
+            <div className="controls flex-center" style={{ width: '180px' }}>
+              <label htmlFor="brushSize">{canvasData.brushSize}px</label>
               <input
                 disabled={currentMode === 'delete'}
-                type="number"
+                type="range"
+                min="1"
+                max="30"
                 id="brushSize"
                 name="brushSize"
                 value={canvasData.brushSize}
