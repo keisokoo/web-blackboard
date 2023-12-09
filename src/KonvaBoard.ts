@@ -4,8 +4,8 @@ import { LineConfig } from "konva/lib/shapes/Line";
 
 type ModeType = 'brush' | 'eraser' | 'delete';
 class BrushOptions {
-  brushSize: number = 5;
-  color: string = '#df4b26';
+  brushSize: number = 2;
+  color: string = '#000000';
   constructor(options?: Partial<BrushOptions>) {
     if (options) {
       this.brushSize = options.brushSize || this.brushSize;
@@ -55,6 +55,7 @@ type CallbackData = {
     undoStack: ControlStack[]
     redoStack: ControlStack[]
     historyStack: HistoryStack[]
+    isPlaying: boolean
   }
 }
 class KonvaBoard {
@@ -71,10 +72,12 @@ class KonvaBoard {
   private redoStack: ControlStack[] = [];
   private historyStack: HistoryStack[] = [];
   private lastRemovedLines: Set<Konva.Line> = new Set();
+  private isPlaying: boolean = false;
   private timeline: TimelineType = {
     start: 0,
     end: 0
   };
+  private playTimeout: NodeJS.Timeout = setTimeout(() => { }, 0)
   brushes: {
     brush: BrushOptions,
     eraser: BrushOptions,
@@ -128,7 +131,8 @@ class KonvaBoard {
         color: this.currentBrush.color,
         undoStack: this.undoStack,
         redoStack: this.redoStack,
-        historyStack: this.historyStack
+        historyStack: this.historyStack,
+        isPlaying: this.isPlaying
       }
     }
   }
@@ -217,22 +221,48 @@ class KonvaBoard {
   }
   copyLineOptions(lines: Konva.Line[]): LineConfig[] {
     const lineOptions = lines.map(line => {
-      return {
-        id: line.id(),
-        stroke: line.stroke(),
-        strokeWidth: line.strokeWidth(),
-        globalCompositeOperation: line.globalCompositeOperation(),
-        lineCap: line.lineCap(),
-        lineJoin: line.lineJoin(),
-        hitStrokeWidth: line.hitStrokeWidth(),
-        points: line.points()
-      }
-    }) as LineConfig[];
+      return line.getAttrs() as LineConfig;
+    })
     return lineOptions
+  }
+  animateLineWithDuration(duration: number, layer: Konva.Layer, lineOptions: LineConfig) {
+    let startTime: number;
+    const { points, ...rest } = lineOptions;
+    if (!points || points.length < 2) return;
+    const newLine = new Konva.Line({ ...rest, points: [] });
+
+    this.bindHitLineEvent(newLine);
+    layer.add(newLine);
+
+    const anim = new Konva.Animation((frame) => {
+      if (!frame) return;
+      if (!startTime) startTime = frame.time;
+      const timeElapsed = frame.time - startTime;
+      const progress = timeElapsed / duration;
+
+      const currentPointIndex = Math.min(
+        Math.floor(progress * points.length / 2) * 2,
+        points.length
+      );
+
+      newLine.points(points.slice(0, currentPointIndex) as number[]);
+
+      if (timeElapsed >= duration) {
+        anim.stop();
+      }
+    }, layer);
+
+    anim.start();
+  }
+  stopHistoryReplay() {
+    this.isPlaying = false;
+    clearTimeout(this.playTimeout);
+    this.updated('stop history replay');
   }
   playHistoryStack(historyStack: HistoryStack[]) {
     const playStack = historyStack ?? [];
     if (playStack.length === 0) return;
+    this.isPlaying = true;
     this.undoStack = [];
     this.redoStack = [];
     this.updated('replay history Stack', true);
@@ -240,20 +270,21 @@ class KonvaBoard {
     let initialTime = playStack[0].startAt;
     playStack.forEach((stack, index) => {
       let timeOffset = stack.startAt - initialTime;
-      setTimeout(() => {
+      this.playTimeout = setTimeout(() => {
         if (stack.action === 'remove') {
           stack.options.forEach(option => {
             this.layer.findOne(`#${option.id}`)?.remove();
           })
         } else {
           stack.options.forEach(option => {
-            const newLine = new Konva.Line(option as LineConfig)
-            this.bindHitLineEvent(newLine);
-            this.layer.add(newLine);
+            this.animateLineWithDuration(stack.duration, this.layer, option);
           })
         }
         if (index === playStack.length - 1) {
-          this.updated('replay history Stack')
+          setTimeout(() => {
+            this.isPlaying = false;
+            this.updated('replayed history Stack')
+          }, stack.duration)
         }
       }, timeOffset)
     })
@@ -296,9 +327,6 @@ class KonvaBoard {
         this.updated('remove');
         this.appendStack([line]);
       }
-    });
-    this.lastLine.on('pointerout', () => {
-      this.updated('pointerout');
     });
   }
   init() {

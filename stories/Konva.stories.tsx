@@ -19,6 +19,7 @@ export const Demo = () => {
   const [historyStack, set_historyStack] = React.useState<
     HistoryStack[] | null
   >(null)
+  const [isPlaying, set_isPlaying] = React.useState<boolean>(false)
   useEffect(() => {
     if (!containerRef.current) return
     const konvaBoard = new KonvaBoard(containerRef.current, (values) => {
@@ -27,6 +28,7 @@ export const Demo = () => {
         undo: values.data.undoStack.length,
         redo: values.data.redoStack.length,
       })
+      set_isPlaying(values.data.isPlaying)
       set_historyStack(values.data.historyStack)
     })
     set_canvasData(konvaBoard.currentBrush.getBrushOptions())
@@ -35,7 +37,7 @@ export const Demo = () => {
   return (
     <div className="canvas-wrap">
       <div className="msg">{description}</div>
-      {methods && (
+      {methods && !isPlaying && (
         <div className="control-box">
           <div className="buttons">
             <button
