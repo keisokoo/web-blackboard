@@ -38,105 +38,146 @@ export const Demo = () => {
     <div className="canvas-wrap">
       <div className="msg">{description}</div>
       {methods && !isPlaying && (
-        <div className="control-box">
-          <div className="buttons">
-            <button
-              disabled={!historyStack || historyStack.length === 0}
-              onClick={() => {
-                if (!historyStack) return
-                methods.playHistoryStack(historyStack)
-              }}
-            >
-              playHistoryStack
-            </button>
-            <button
-              disabled={stackLength.undo === 0}
-              onClick={() => {
-                methods.undo()
-              }}
-            >
-              undo ({stackLength.undo})
-            </button>
-            <button
-              disabled={stackLength.redo === 0}
-              onClick={() => {
-                methods.redo()
-              }}
-            >
-              redo ({stackLength.redo})
-            </button>
-            <button
-              onClick={() => {
-                set_canvasData(methods.setMode('brush'))
-                set_currentMode('brush')
-              }}
-              className={currentMode === 'brush' ? 'active' : ''}
-            >
-              brush
-            </button>
-            <button
-              onClick={() => {
-                set_canvasData(methods.setMode('eraser'))
-                set_currentMode('eraser')
-              }}
-              className={currentMode === 'eraser' ? 'active' : ''}
-            >
-              eraser
-            </button>
-            <button
-              onClick={() => {
-                set_canvasData(methods.setMode('delete'))
-                set_currentMode('delete')
-              }}
-              className={currentMode === 'delete' ? 'active' : ''}
-            >
-              delete
-            </button>
-            <div className="controls flex-center">
-              <label
-                htmlFor="color"
-                className="brush-style"
-                style={{
-                  backgroundColor: canvasData.color,
-                  width: canvasData.brushSize + 'px',
-                  height: canvasData.brushSize + 'px',
-                  borderRadius:
-                    currentMode === 'brush'
-                      ? canvasData.brushSize + 'px'
-                      : '0px',
+        <>
+          <div className="control-box">
+            <div className="buttons">
+              <button
+                onClick={() => {
+                  methods.startRecording()
                 }}
               >
+                startRecording
+              </button>
+              <button
+                onClick={() => {
+                  methods.stopRecording()
+                }}
+              >
+                stopRecording
+              </button>
+              <button
+                disabled={!historyStack || historyStack.length === 0}
+                onClick={() => {
+                  if (!historyStack) return
+                  methods.playHistoryStack(historyStack)
+                }}
+              >
+                playHistoryStack
+              </button>
+              <button
+                disabled={stackLength.undo === 0}
+                onClick={() => {
+                  methods.undo()
+                }}
+              >
+                undo ({stackLength.undo})
+              </button>
+              <button
+                disabled={stackLength.redo === 0}
+                onClick={() => {
+                  methods.redo()
+                }}
+              >
+                redo ({stackLength.redo})
+              </button>
+              <button
+                onClick={() => {
+                  set_canvasData(methods.setMode('brush'))
+                  set_currentMode('brush')
+                }}
+                className={currentMode === 'brush' ? 'active' : ''}
+              >
+                brush
+              </button>
+              <button
+                onClick={() => {
+                  set_canvasData(methods.setMode('eraser'))
+                  set_currentMode('eraser')
+                }}
+                className={currentMode === 'eraser' ? 'active' : ''}
+              >
+                eraser
+              </button>
+              <button
+                onClick={() => {
+                  set_canvasData(methods.setMode('delete'))
+                  set_currentMode('delete')
+                }}
+                className={currentMode === 'delete' ? 'active' : ''}
+              >
+                delete
+              </button>
+              <div className="controls flex-center">
+                <label
+                  htmlFor="color"
+                  className="brush-style"
+                  style={{
+                    backgroundColor: canvasData.color,
+                    width: canvasData.brushSize + 'px',
+                    height: canvasData.brushSize + 'px',
+                    borderRadius:
+                      currentMode === 'brush'
+                        ? canvasData.brushSize + 'px'
+                        : '0px',
+                  }}
+                >
+                  <input
+                    disabled={currentMode === 'delete'}
+                    type="color"
+                    id="color"
+                    name="color"
+                    value={canvasData.color}
+                    onChange={(e) => {
+                      const changed = methods.setColor(e.target.value)
+                      set_canvasData(changed)
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="controls flex-center" style={{ width: '180px' }}>
+                <label htmlFor="brushSize">{canvasData.brushSize}px</label>
                 <input
                   disabled={currentMode === 'delete'}
-                  type="color"
-                  id="color"
-                  name="color"
-                  value={canvasData.color}
+                  type="range"
+                  min="1"
+                  max="30"
+                  id="brushSize"
+                  name="brushSize"
+                  value={canvasData.brushSize}
                   onChange={(e) => {
-                    const changed = methods.setColor(e.target.value)
+                    const changed = methods.setBrushSize(Number(e.target.value))
                     set_canvasData(changed)
                   }}
                 />
-              </label>
+              </div>
             </div>
-            <div className="controls flex-center" style={{ width: '180px' }}>
-              <label htmlFor="brushSize">{canvasData.brushSize}px</label>
+          </div>
+          <div className="right">
+            <div className="controls">
+              {/* upload .zip file */}
+              <label htmlFor="file">upload .zip file</label>
               <input
-                disabled={currentMode === 'delete'}
-                type="range"
-                min="1"
-                max="30"
-                id="brushSize"
-                name="brushSize"
-                value={canvasData.brushSize}
+                type="file"
+                id="file"
+                name="file"
+                accept=".zip"
                 onChange={(e) => {
-                  const changed = methods.setBrushSize(Number(e.target.value))
-                  set_canvasData(changed)
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  methods.handleZipFile(file)
                 }}
               />
             </div>
+            {/* play .zip */}
+            <button
+              onClick={() => {
+                methods.playAudio()
+              }}
+            >
+              play .zip
+            </button>
           </div>
-        </div>
+        </>
       )}
       <div ref={containerRef}></div>
     </div>

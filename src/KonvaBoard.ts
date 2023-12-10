@@ -1,8 +1,10 @@
 import Konva from "konva";
 import generateHash from "./helper/generateHash";
 import { LineConfig } from "konva/lib/shapes/Line";
+import JSZip from 'jszip';
 
 type ModeType = 'brush' | 'eraser' | 'delete';
+type ActionType = 'add' | 'remove';
 class BrushOptions {
   brushSize: number = 2;
   color: string = '#000000';
@@ -32,9 +34,15 @@ type TimelineType = {
 type StackType = {
   id: string,
   mode: ModeType,
-  action: 'add' | 'remove',
+  action: ActionType,
   startAt: number,
   duration: number
+}
+type AudioInfo = {
+  startTime: number,
+  endTime: number,
+  duration: number
+  historyStack: HistoryStack[]
 }
 type ControlStack = StackType & {
   lines: Konva.Line[]
@@ -77,7 +85,12 @@ class KonvaBoard {
     start: 0,
     end: 0
   };
-  private playTimeout: NodeJS.Timeout = setTimeout(() => { }, 0)
+  private playTimeout: NodeJS.Timeout = setTimeout(() => { }, 0);
+  private audioChunks: BlobPart[] = [];
+  private uploadedAudioUrl: string = '';
+  private mediaRecorder: MediaRecorder | null = null;
+  private audioInfo: AudioInfo | null = null;
+  private playedStack: Set<HistoryStack> = new Set();
   brushes: {
     brush: BrushOptions,
     eraser: BrushOptions,
@@ -142,16 +155,20 @@ class KonvaBoard {
     }
     this.cb(this.getCurrentData(message));
   }
-  appendStack(lines: Konva.Line[]) {
+  appendStack(lines: Konva.Line[], manuallyControl?: {
+    actionType?: ActionType,
+    withoutHistory?: boolean
+  }) {
     if (!lines || lines.length < 0) return;
     const endNow = Date.now();
     if (!this.timeline.start) this.timeline.start = endNow;
     this.timeline.end = endNow;
     const startAt = this.timeline.start;
     const duration = this.timeline.end - this.timeline.start;
-    const stack: StackType = { id: `stack-${generateHash()}`, mode: this.mode, action: this.mode === 'delete' ? 'remove' : 'add', startAt, duration }
+    const currentAction = manuallyControl?.actionType ?? this.mode === 'delete' ? 'remove' : 'add';
+    const stack: StackType = { id: `stack-${generateHash()}`, mode: this.mode, action: currentAction, startAt, duration }
     this.undoStack.push({ ...stack, lines });
-    this.historyStack.push({ ...stack, options: this.copyLineOptions(lines) });
+    if (!manuallyControl?.withoutHistory) this.historyStack.push({ ...stack, options: this.copyLineOptions(lines) });
     this.updated('appendStack');
     this.timeline = {
       start: 0,
@@ -176,10 +193,11 @@ class KonvaBoard {
       last.action = 'remove';
       this.redoStack.push(last);
     }
-    const forStackType = { ...last }
+    const { lines, ...rest } = { ...last }
+    const forStackType = { ...rest }
     forStackType.startAt = Date.now();
     forStackType.duration = 0;
-    this.historyStack.push({ ...forStackType, options: this.copyLineOptions(forStackType.lines) });
+    this.historyStack.push({ ...forStackType, options: this.copyLineOptions(lines) });
     this.updated('undo');
   }
   redo() {
@@ -200,10 +218,11 @@ class KonvaBoard {
       last.action = 'remove';
       this.undoStack.push(last);
     }
-    let forStackType = { ...last }
+    const { lines, ...rest } = { ...last }
+    const forStackType = { ...rest }
     forStackType.startAt = Date.now();
     forStackType.duration = 0;
-    this.historyStack.push({ ...forStackType, options: this.copyLineOptions(forStackType.lines) });
+    this.historyStack.push({ ...forStackType, options: this.copyLineOptions(lines) });
     this.updated('redo');
   }
   private cursorStyle() {
@@ -225,7 +244,7 @@ class KonvaBoard {
     })
     return lineOptions
   }
-  animateLineWithDuration(duration: number, layer: Konva.Layer, lineOptions: LineConfig) {
+  animateLineWithDuration(duration: number, layer: Konva.Layer, lineOptions: LineConfig, endCallback?: (newLine: Konva.Line) => void) {
     let startTime: number;
     const { points, ...rest } = lineOptions;
     if (!points || points.length < 2) return;
@@ -233,7 +252,6 @@ class KonvaBoard {
 
     this.bindHitLineEvent(newLine);
     layer.add(newLine);
-
     const anim = new Konva.Animation((frame) => {
       if (!frame) return;
       if (!startTime) startTime = frame.time;
@@ -249,6 +267,7 @@ class KonvaBoard {
 
       if (timeElapsed >= duration) {
         anim.stop();
+        endCallback && endCallback(newLine);
       }
     }, layer);
 
@@ -258,6 +277,89 @@ class KonvaBoard {
     this.isPlaying = false;
     clearTimeout(this.playTimeout);
     this.updated('stop history replay');
+  }
+  setAudioStack(audioInfo: AudioInfo, audioBlob: string) {
+    this.isPlaying = true;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.layer.destroyChildren();
+    this.updated('setAudioStack');
+    if (document.querySelector('#audio')) document.querySelector('#wb-audio')?.remove();
+    const audioElement = document.createElement('audio');
+    audioElement.src = audioBlob;
+    audioElement.id = 'wb-audio';
+    audioElement.controls = true;
+    this.el.appendChild(audioElement);
+    const initialTime = audioInfo.startTime;
+    const stacksBeforeInitialTime = audioInfo.historyStack.filter((stack) => (stack.startAt - initialTime < 0));
+    const stacksAfterInitialTime = audioInfo.historyStack.filter((stack) => (stack.startAt - initialTime >= 0));
+    let historyMap = new Map<number, HistoryStack[]>();
+    stacksAfterInitialTime.forEach(stack => {
+      const timeKey = Math.floor((stack.startAt - initialTime) / 1000);
+      if (!historyMap.has(timeKey)) {
+        historyMap.set(timeKey, []);
+      }
+      historyMap.get(timeKey)?.push(stack);
+    });
+    audioElement.onplay = () => {
+      stacksBeforeInitialTime.forEach((stack) => {
+        if (stack.action === 'remove') {
+          stack.options.forEach(option => {
+            const newLine = this.layer.findOne(`#${option.id}`)
+            if (!newLine) return;
+            newLine.remove();
+          })
+        } else {
+          stack.options.forEach(option => {
+            if (stack.duration === 0) {
+              const newLine = new Konva.Line(option)
+              this.layer.add(newLine);
+              return;
+            }
+            this.animateLineWithDuration(stack.duration, this.layer, option);
+          })
+        }
+      })
+    }
+    audioElement.ontimeupdate = () => {
+      const currentTime = audioElement.currentTime;
+      const playStack = audioInfo.historyStack.filter((stack) => (stack.startAt - initialTime >= 0)).filter(stack => {
+        const timeOffset = (stack.startAt - initialTime) / 1000;
+        return timeOffset >= currentTime;
+      })
+      console.log('currentTime', currentTime)
+      const drawingStack = playStack[0]
+      if (this.playedStack.has(drawingStack)) return;
+      if (!drawingStack) return;
+      this.playedStack.add(drawingStack);
+      if (drawingStack.action === 'remove') {
+        drawingStack.options.forEach(option => {
+          const newLine = this.layer.findOne(`#${option.id}`)
+          if (!newLine) return;
+          newLine.remove();
+        })
+      } else {
+        drawingStack.options.forEach(option => {
+          if (drawingStack.duration === 0) {
+            const newLine = new Konva.Line(option)
+            this.layer.add(newLine);
+            return;
+          }
+          this.animateLineWithDuration(drawingStack.duration, this.layer, option);
+        })
+      }
+    }
+    audioElement.onpause = () => {
+      this.isPlaying = false;
+      this.updated('paused history Stack')
+    }
+    audioElement.onended = () => {
+      // audioElement.remove()
+    }
+    this.audioInfo = audioInfo;
+    this.historyStack = audioInfo.historyStack;
+
+
   }
   playHistoryStack(historyStack: HistoryStack[]) {
     const playStack = historyStack ?? [];
@@ -273,10 +375,17 @@ class KonvaBoard {
       this.playTimeout = setTimeout(() => {
         if (stack.action === 'remove') {
           stack.options.forEach(option => {
-            this.layer.findOne(`#${option.id}`)?.remove();
+            const newLine = this.layer.findOne(`#${option.id}`)
+            if (!newLine) return;
+            newLine.remove();
           })
         } else {
           stack.options.forEach(option => {
+            if (stack.duration === 0) {
+              const newLine = new Konva.Line(option)
+              this.layer.add(newLine);
+              return;
+            }
             this.animateLineWithDuration(stack.duration, this.layer, option);
           })
         }
@@ -405,6 +514,124 @@ class KonvaBoard {
     this.currentBrush.setColor(color);
     this.updated('setColor');
     return this.currentBrush.getBrushOptions();
+  }
+  async getAudioStream() {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error('오디오 스트림을 얻는 데 실패했습니다:', err);
+    }
+  }
+
+  async startRecording() {
+    const stream = await this.getAudioStream();
+    if (!stream) {
+      console.error('오디오 스트림을 얻는 데 실패했습니다: 사용자 권한 거부');
+      return
+    };
+    let ext = 'wav'
+    let options = {};
+    if (MediaRecorder.isTypeSupported('audio/mp4; codecs="aac"')) {
+      options = { mimeType: 'audio/mp4; codecs="aac"' };
+      ext = 'aac';
+    } else if (MediaRecorder.isTypeSupported('audio/webm; codecs=opus')) {
+      options = { mimeType: 'audio/webm; codecs=opus' };
+      ext = 'opus';
+    }
+    this.mediaRecorder = new MediaRecorder(stream, options);
+    this.mediaRecorder.start();
+
+    let startTime = Date.now();
+
+    this.mediaRecorder.ondataavailable = (event) => {
+      this.audioChunks.push(event.data);
+    };
+
+    this.mediaRecorder.onstop = () => {
+      if (!this.audioInfo) return;
+      const endTime = Date.now();
+      const audioBlob = new Blob(this.audioChunks, { type: `audio/${ext}` });
+      this.audioInfo = {
+        ...this.audioInfo,
+        endTime: endTime,
+        duration: endTime - this.audioInfo.startTime,
+        historyStack: this.historyStack
+      }
+      const audioUrl = URL.createObjectURL(audioBlob);
+      // 오디오 처리 로직 (예: 오디오 재생, 저장 등)
+      console.log('audioUrl: ', audioUrl);
+      // this.createDownloadLink(audioUrl);
+      this.downloadZip(audioBlob, this.audioInfo, ext);
+      this.audioChunks = []; // 다음 녹음을 위해 배열 초기화
+    };
+    this.mediaRecorder.onstart = () => {
+      console.log('녹음 시작');
+      this.audioInfo = {
+        startTime: Date.now(),
+        endTime: 0,
+        duration: 0,
+        historyStack: []
+      }
+    }
+  }
+  stopRecording() {
+    if (!this.mediaRecorder) return;
+    this.mediaRecorder.stop();
+  }
+  createDownloadLink(audioUrl: string) {
+    const downloadLink = document.createElement('a');
+    downloadLink.href = audioUrl;
+    downloadLink.download = 'recorded_audio.wav';
+    downloadLink.textContent = 'Download Audio';
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+  }
+  downloadZip(audioBlob: Blob, jsonScript: AudioInfo, audioExt: string) {
+    const zip = new JSZip();
+
+    // 음성 파일과 스크립트를 ZIP에 추가
+    zip.file(`audio.${audioExt}`, audioBlob);
+    zip.file('audioInfo.json', JSON.stringify(jsonScript));
+
+    // ZIP 파일 생성
+    zip.generateAsync({ type: 'blob' })
+      .then((zipContent) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(zipContent);
+        a.download = 'webBoardRecord-' + Date.now() + '.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        this.audioInfo = null;
+      });
+  }
+  handleZipFile(file: File) {
+    console.log('file: ', file)
+    JSZip.loadAsync(file).then(async (zip) => {
+      const stackJson = zip.file('audioInfo.json')
+      const audioBlob = zip.file('audio.opus') ?? zip.file('audio.aac') ?? zip.file('audio.wav');
+      console.log('stackJson', stackJson)
+      console.log('audioBlob', audioBlob)
+      if (!audioBlob) return;
+      if (!stackJson) return;
+      let audioJson: AudioInfo;
+      let blobUrl: string;
+      const json = await stackJson.async('string')
+      const blob = await audioBlob.async('blob')
+      const audioInfo = JSON.parse(json);
+      audioJson = audioInfo;
+      const audioUrl = URL.createObjectURL(blob);
+      blobUrl = audioUrl
+      this.setAudioStack(audioJson, blobUrl);
+    })
+  }
+  playAudio() {
+    console.log('this.audioInfo', this.audioInfo);
+    if (!this.audioInfo) return;
+    console.log('this.audioInfo.historyStack: ', this.audioInfo.historyStack);
+    this.playHistoryStack(this.audioInfo.historyStack);
+    const audio = new Audio(this.uploadedAudioUrl);
+    audio.play();
   }
 }
 export default KonvaBoard;
