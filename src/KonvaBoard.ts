@@ -93,12 +93,12 @@ class KonvaBoard {
     start: 0,
     end: 0
   };
-  private animation: Konva.Animation | null = null;
-  private playTimeout: NodeJS.Timeout = setTimeout(() => { }, 0);
+  private animations: Set<Konva.Animation> = new Set();
   private audioChunks: BlobPart[] = [];
   private uploadedAudioUrl: string = '';
   private mediaRecorder: MediaRecorder | null = null;
   private audioInfo: AudioInfo | null = null;
+  private playingTimeouts: Set<NodeJS.Timeout> = new Set();
   brushes: {
     brush: BrushOptions,
     eraser: BrushOptions,
@@ -274,21 +274,36 @@ class KonvaBoard {
       newLine.points(points.slice(0, currentPointIndex) as number[]);
 
       if (timeElapsed >= duration) {
-        if (animation) animation.stop();
+        animation.stop();
+        if (animation.id) this.animations.delete(animation);
         endCallback && endCallback(newLine);
       }
     }, layer);
-
+    this.animations.add(animation);
     animation.start();
+  }
+  stopAllAnimations() {
+    this.animations.forEach(anim => {
+      anim.stop();
+      this.animations.delete(anim);
+    });
+  }
+
+  clearAllTimeouts() {
+    this.playingTimeouts.forEach(clearTimeout);
+    this.playingTimeouts.clear();
   }
   stopHistoryReplay() {
     this.isPlaying = false;
-    clearTimeout(this.playTimeout);
+    this.clearAllTimeouts();
     this.updated('stop history replay');
   }
   reRenderBeforeHistoryStack(historyStack: HistoryStack[], seekTime: number) {
+    this.clearAllTimeouts();
+    this.stopAllAnimations()
     this.layer.destroyChildren();
-    const stacksBeforeInitialTime = historyStack.filter((stack) => (Math.floor(stack.startAt) - Math.floor(seekTime) < 0));
+    const threshold = 1000;
+    const stacksBeforeInitialTime = historyStack.filter((stack) => (stack.startAt - (seekTime + threshold) <= 0));
     stacksBeforeInitialTime.forEach((stack) => {
       if (stack.action === 'remove') {
         stack.options.forEach(option => {
@@ -298,12 +313,8 @@ class KonvaBoard {
         })
       } else {
         stack.options.forEach(option => {
-          if (stack.duration === 0) {
-            const newLine = new Konva.Line(option)
-            this.layer.add(newLine);
-            return;
-          }
-          this.animateLineWithDuration(stack.duration, this.layer, option);
+          const newLine = new Konva.Line(option)
+          this.layer.add(newLine);
         })
       }
     })
@@ -333,26 +344,27 @@ class KonvaBoard {
     });
     let isSeeking = false;
     audioElement.onpause = () => {
-      clearTimeout(this.playTimeout);
-      isSeeking = true;
+      console.log('onpause')
+      this.clearAllTimeouts();
+      this.stopAllAnimations()
     }
     audioElement.oncanplay = () => {
-      clearTimeout(this.playTimeout);
+      this.clearAllTimeouts();
       isSeeking = true;
     }
-
     audioElement.onplay = () => {
       if (!isSeeking) return;
-      console.log('onseeked')
-      isSeeking = false;
+      this.clearAllTimeouts();
+      console.log('onplay')
       const currentTime = Math.floor(audioElement.currentTime);
       this.reRenderBeforeHistoryStack(audioInfo.historyStack, initialTime + currentTime * 1000);
+      isSeeking = false;
     }
+    audioElement.muted = true;
     const $this = this;
     const debouncedSeekedHandler = debounce(function () {
       if (!audioElement.paused) return;
       console.log('onseeked')
-      isSeeking = false;
       const currentTime = Math.floor(audioElement.currentTime);
       $this.reRenderBeforeHistoryStack(audioInfo.historyStack, initialTime + currentTime * 1000);
     }, 250);
@@ -361,7 +373,6 @@ class KonvaBoard {
       if (isSeeking) {
         return
       };
-      console.log('ontimeupdate')
       const currentTime = Math.floor(audioElement.currentTime);
       if (historyMap.has(currentTime)) {
         const historyStack = historyMap.get(currentTime);
@@ -369,7 +380,7 @@ class KonvaBoard {
         if (historyStack.length === 0) return;
         historyStack.forEach((stack) => {
           const delay = stack.startAt - initialTime - currentTime * 1000;
-          this.playTimeout = setTimeout(() => {
+          const playTimeout = setTimeout(() => {
             if (stack.action === 'remove') {
               stack.options.forEach(option => {
                 const newLine = this.layer.findOne(`#${option.id}`)
@@ -387,6 +398,7 @@ class KonvaBoard {
               })
             }
           }, delay)
+          this.playingTimeouts.add(playTimeout);
         })
       }
     }
@@ -413,7 +425,7 @@ class KonvaBoard {
     let initialTime = playStack[0].startAt;
     playStack.forEach((stack, index) => {
       let timeOffset = stack.startAt - initialTime;
-      this.playTimeout = setTimeout(() => {
+      const playTimeout = setTimeout(() => {
         if (stack.action === 'remove') {
           stack.options.forEach(option => {
             const newLine = this.layer.findOne(`#${option.id}`)
@@ -437,6 +449,7 @@ class KonvaBoard {
           }, stack.duration)
         }
       }, timeOffset)
+      this.playingTimeouts.add(playTimeout);
     })
   }
   drawCursor(x: number, y: number) {
