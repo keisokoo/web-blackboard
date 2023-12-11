@@ -353,7 +353,15 @@ class KonvaBoard {
       isSeeking = true;
     }
     audioElement.onplay = () => {
-      if (!isSeeking) return;
+      if (!isSeeking) {
+        if (audioElement.currentTime === 0) {
+          this.clearAllTimeouts();
+          this.stopAllAnimations();
+          this.reRenderBeforeHistoryStack(audioInfo.historyStack, initialTime);
+          isSeeking = false;
+        }
+        return
+      };
       this.clearAllTimeouts();
       console.log('onplay')
       const currentTime = Math.floor(audioElement.currentTime);
@@ -370,6 +378,7 @@ class KonvaBoard {
     }, 250);
     audioElement.onseeked = debouncedSeekedHandler
     audioElement.ontimeupdate = () => {
+      console.log('isSeeking', isSeeking)
       if (isSeeking) {
         return
       };
@@ -407,7 +416,7 @@ class KonvaBoard {
       this.updated('paused history Stack')
     }
     audioElement.onended = () => {
-      // audioElement.remove()
+      isSeeking = false;
     }
     this.audioInfo = audioInfo;
     this.historyStack = audioInfo.historyStack;
