@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react'
-import { KonvaBoard, HistoryStack } from '../src'
+import { WebBlackBoard, HistoryStack, RecordBlackboard } from '../src'
 import { Meta } from '@storybook/react'
-import './canvas.css'
+import './canvas.scss'
 
 export const Demo = () => {
   const containerRef = React.useRef<HTMLDivElement>(null)
-  const [methods, set_Methods] = React.useState<KonvaBoard | null>(null)
+  const audioRef = React.useRef<HTMLAudioElement>(null)
+  const [methods, set_Methods] = React.useState<WebBlackBoard | null>(null)
   const [description, set_description] = React.useState<string>('')
   const [canvasData, set_canvasData] = React.useState<{
     brushSize: number
@@ -20,9 +21,11 @@ export const Demo = () => {
     HistoryStack[] | null
   >(null)
   const [isPlaying, set_isPlaying] = React.useState<boolean>(false)
+
+  const [recorder, set_recorder] = React.useState<RecordBlackboard | null>(null)
   useEffect(() => {
     if (!containerRef.current) return
-    const konvaBoard = new KonvaBoard(containerRef.current, (values) => {
+    const webBoard = new WebBlackBoard(containerRef.current, (values) => {
       set_description(values.message)
       set_stackLength({
         undo: values.data.undoStack.length,
@@ -31,38 +34,33 @@ export const Demo = () => {
       set_isPlaying(values.data.isPlaying)
       set_historyStack(values.data.historyStack)
     })
-    set_canvasData(konvaBoard.currentBrush.getBrushOptions())
-    set_Methods(konvaBoard)
+    set_canvasData(webBoard.currentBrush.getBrushOptions())
+    set_Methods(webBoard)
+    if (audioRef.current) {
+      const recorderBoard = new RecordBlackboard(webBoard, audioRef.current)
+      set_recorder(recorderBoard)
+    }
   }, [])
   return (
     <div className="canvas-wrap">
       <div className="msg">{description}</div>
-      {methods && !isPlaying && (
+      {methods && !isPlaying && recorder && (
         <>
           <div className="control-box">
             <div className="buttons">
               <button
                 onClick={() => {
-                  methods.startRecording()
+                  recorder.startRecording()
                 }}
               >
                 startRecording
               </button>
               <button
                 onClick={() => {
-                  methods.stopRecording()
+                  recorder.stopRecording()
                 }}
               >
                 stopRecording
-              </button>
-              <button
-                disabled={!historyStack || historyStack.length === 0}
-                onClick={() => {
-                  if (!historyStack) return
-                  methods.playHistoryStack(historyStack)
-                }}
-              >
-                playHistoryStack
               </button>
               <button
                 disabled={stackLength.undo === 0}
@@ -164,21 +162,14 @@ export const Demo = () => {
                 onChange={(e) => {
                   const file = e.target.files?.[0]
                   if (!file) return
-                  methods.handleZipFile(file)
+                  recorder.handleZipFile(file)
                 }}
               />
             </div>
-            {/* play .zip */}
-            <button
-              onClick={() => {
-                methods.playAudio()
-              }}
-            >
-              play .zip
-            </button>
           </div>
         </>
       )}
+      <audio ref={audioRef} id={'#wb-audio'} controls></audio>
       <div ref={containerRef}></div>
     </div>
   )

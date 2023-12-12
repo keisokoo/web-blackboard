@@ -1,3 +1,3 @@
-export { default as createBlackboard } from './createBlackboard';
-export { default as KonvaBoard } from './KonvaBoard';
-export type { HistoryStack } from './KonvaBoard';
+export { default as WebBlackBoard } from './WebBlackBoard';
+export { default as RecordBlackboard } from './RecordBlackboard';
+export type { HistoryStack } from './types';
