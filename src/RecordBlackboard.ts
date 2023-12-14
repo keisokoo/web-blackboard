@@ -125,7 +125,7 @@ class RecordBlackboard {
     this.seekerElement.style.width = percent + '%'
     const currentTime = this.duration * percent / 100;
     this.nextTime = currentTime;
-    this.reRenderDrawingLayer(currentTime);
+    this.reRenderDrawingLayer(this.nextTime);
     console.log('currentTime', currentTime)
     this.isSeeking = false;
   }
@@ -171,6 +171,8 @@ class RecordBlackboard {
     const initialTime = audioInfo.startTime;
     this.initialTime = audioInfo.startTime;
     this.setHistoryStack(audioInfo.historyStack, this.initialTime);
+    this.backgroundLayer.destroyChildren();
+    this.drawingLayer.destroyChildren();
     this.webBlackboard.layer.destroyChildren();
     this.playHistoryStack.forEach(stack => {
       const timeKey = Math.floor((stack.startAt - initialTime) / 1000);
@@ -182,8 +184,10 @@ class RecordBlackboard {
     console.log('this.historyMap', this.historyMap)
     this.playMap = new Map(this.historyMap);
     this.audioElement.onloadedmetadata = () => {
+      if (!this.audioInfo) return;
       console.log('시간', this.audioElement.duration, isFinite(this.audioElement.duration))
-      this.duration = !isFinite(this.audioElement.duration) && this.audioInfo ? this.audioInfo.duration / 1000 : this.audioElement.duration;
+      this.duration = isFinite(this.audioElement.duration) ? this.audioElement.duration : this.audioInfo.duration / 1000;
+
       this.cb({
         message: 'loadedmetadata',
         data: {
@@ -235,10 +239,6 @@ class RecordBlackboard {
         this.audioEnded = false;
         this.drawingLayer.destroyChildren();
       }
-      // const firstKey = Array.from(this.playMap.keys())[0]
-      // if (firstKey && firstKey < currentTime) {
-      //   this.audioElement.pause()
-      // }
       if (this.playMap.has(currentTime)) {
         const historyStack = this.playMap.get(currentTime);
         this.playMap.delete(currentTime);
@@ -247,37 +247,7 @@ class RecordBlackboard {
         historyStack.forEach((stack) => {
           const delay = stack.startAt - initialTime - currentTime * 1000;
           const playTimeout = setTimeout(() => {
-            if (stack.action.includes('panning')) {
-              this.animateStageMovement(this.webBlackboard.stage, {
-                before: stack.beforePosition,
-                after: stack.afterPosition
-              }, stack.duration, stack.action as 'panning-after' | 'panning-before');
-            } else {
-              const currentPosition = this.webBlackboard.stage.getPosition()
-              const stackPosition = stack.afterPosition
-              if (currentPosition.x !== stackPosition.x || currentPosition.y !== stackPosition.y) {
-                this.animateStageMovement(this.webBlackboard.stage, {
-                  before: stack.beforePosition,
-                  after: stack.afterPosition
-                }, stack.duration, 'panning-after');
-              }
-            }
-            if (stack.action === 'remove') {
-              stack.options.forEach(option => {
-                const newLine = this.drawingLayer.findOne(`#${option.id}`)
-                if (!newLine) return;
-                newLine.remove();
-              })
-            } else {
-              stack.options.forEach(option => {
-                if (stack.duration === 0) {
-                  const newLine = new Konva.Line(option)
-                  this.drawingLayer.add(newLine);
-                  return;
-                }
-                this.animateLineWithDuration(stack.duration, this.drawingLayer, option);
-              })
-            }
+            this.drawingStack(stack, this.drawingLayer);
           }, delay)
           this.playingTimeouts.add(playTimeout);
         })
@@ -303,24 +273,41 @@ class RecordBlackboard {
 
   protected drawingStack(stack: HistoryStack, layer: Konva.Layer, useAnimation: boolean = true) {
     if (!layer) return;
+    const position = {
+      before: stack.action === 'panning-before' ? stack.afterPosition : stack.beforePosition,
+      after: stack.action === 'panning-before' ? stack.beforePosition : stack.afterPosition
+    }
+    if (stack.action.includes('panning')) {
+      if (!useAnimation) {
+        this.webBlackboard.stage.position(position.after);
+        return;
+      }
+      this.animateStageMovement(this.webBlackboard.stage, position, stack.duration);
+    } else {
+      const stackPosition = position.after
+      const currentPosition = this.webBlackboard.stage.getPosition()
+      if (currentPosition.x !== stackPosition.x || currentPosition.y !== stackPosition.y) {
+        if (!useAnimation) {
+          this.webBlackboard.stage.position(position.after);
+          return;
+        }
+        this.animateStageMovement(this.webBlackboard.stage, position, stack.duration);
+      }
+    }
     if (stack.action === 'remove') {
       stack.options.forEach(option => {
-        const newLine = layer.findOne(`#${option.id}`)
+        const newLine = this.drawingLayer.findOne(`#${option.id}`)
         if (!newLine) return;
         newLine.remove();
       })
-    } else if (stack.action.includes('panning')) {
-      console.log('panning')
-      const { x, y } = stack.action === 'panning-after' ? stack.afterPosition : stack.beforePosition;
-      this.webBlackboard.stage.position({ x, y });
     } else {
       stack.options.forEach(option => {
         if (stack.duration === 0 || !useAnimation) {
           const newLine = new Konva.Line(option)
-          layer.add(newLine);
+          this.drawingLayer.add(newLine);
           return;
         }
-        this.animateLineWithDuration(stack.duration, layer, option);
+        this.animateLineWithDuration(stack.duration, this.drawingLayer, option);
       })
     }
   }
@@ -381,17 +368,11 @@ class RecordBlackboard {
   animateStageMovement(stage: Konva.Stage, stagePosition: {
     before: { x: number, y: number },
     after: { x: number, y: number }
-  }, duration: number, panningAction: 'panning-after' | 'panning-before') {
+  }, duration: number) {
     let startX = stagePosition.before.x;
     let startY = stagePosition.before.y;
     let endX = stagePosition.after.x;
     let endY = stagePosition.after.y;
-    if (panningAction === 'panning-before') {
-      startX = stagePosition.after.x;
-      startY = stagePosition.after.y;
-      endX = stagePosition.before.x;
-      endY = stagePosition.before.y;
-    }
     const animation = new Konva.Animation((frame) => {
       if (!frame) return;
       let time = frame.time, // 애니메이션 진행 시간 (밀리초)
@@ -524,14 +505,10 @@ class RecordBlackboard {
       }
 
       const audioUrl = URL.createObjectURL(audioBlob);
-
-      // 오디오 처리 로직 (예: 오디오 재생, 저장 등)
-      console.log('audioUrl: ', audioUrl);
-      // this.createDownloadLink(audioUrl);
       this.downloadZip(audioBlob, this.audioInfo, ext);
-      this.audioChunks = []; // 다음 녹음을 위해 배열 초기화
+      this.audioChunks = [];
 
-
+      this.mediaRecorder = null;
     };
     this.mediaRecorder.onstart = () => {
       console.log('녹음 시작');
@@ -550,100 +527,3 @@ class RecordBlackboard {
 
 }
 export default RecordBlackboard
-
-/* control logic 
-    this.webBlackboard.isPlaying = true;
-    this.webBlackboard.restoreControlStack();
-    this.webBlackboard.updated('setAudioStack');
-    const audioElement = this.audioElement;
-    audioElement.src = audioBlob;
-    const initialTime = audioInfo.startTime;
-    this.reRenderBeforeHistoryStack(audioInfo.historyStack, initialTime);
-    const stacksAfterInitialTime = audioInfo.historyStack.filter((stack) => (stack.startAt - initialTime >= 0));
-    let historyMap = new Map<number, HistoryStack[]>();
-    stacksAfterInitialTime.forEach(stack => {
-      const timeKey = Math.floor((stack.startAt - initialTime) / 1000);
-      if (!historyMap.has(timeKey)) {
-        historyMap.set(timeKey, []);
-      }
-      historyMap.get(timeKey)?.push(stack);
-    });
-    let isSeeking = false;
-    audioElement.onpause = () => {
-      console.log('onpause')
-      this.clearAllTimeouts();
-      this.stopAllAnimations()
-    }
-    audioElement.oncanplay = () => {
-      this.clearAllTimeouts();
-      isSeeking = true;
-    }
-    audioElement.onplay = () => {
-      if (!isSeeking) {
-        if (audioElement.currentTime === 0) {
-          this.clearAllTimeouts();
-          this.stopAllAnimations();
-          this.reRenderBeforeHistoryStack(audioInfo.historyStack, initialTime);
-          isSeeking = false;
-        }
-        return
-      };
-      this.clearAllTimeouts();
-      console.log('onplay')
-      const currentTime = Math.floor(audioElement.currentTime);
-      this.reRenderBeforeHistoryStack(audioInfo.historyStack, initialTime + currentTime * 1000);
-      isSeeking = false;
-    }
-    audioElement.muted = true;
-    const $this = this;
-    const debouncedSeekedHandler = debounce(function () {
-      if (!audioElement.paused) return;
-      console.log('onseeked')
-      const currentTime = Math.floor(audioElement.currentTime);
-      $this.reRenderBeforeHistoryStack(audioInfo.historyStack, initialTime + currentTime * 1000);
-    }, 250);
-    audioElement.onseeked = debouncedSeekedHandler
-    audioElement.ontimeupdate = () => {
-      console.log('isSeeking', isSeeking)
-      if (isSeeking) {
-        return
-      };
-      const currentTime = Math.floor(audioElement.currentTime);
-      if (historyMap.has(currentTime)) {
-        const historyStack = historyMap.get(currentTime);
-        if (!historyStack) return;
-        if (historyStack.length === 0) return;
-        historyStack.forEach((stack) => {
-          const delay = stack.startAt - initialTime - currentTime * 1000;
-          const playTimeout = setTimeout(() => {
-            if (stack.action === 'remove') {
-              stack.options.forEach(option => {
-                const newLine = this.webBlackboard.layer.findOne(`#${option.id}`)
-                if (!newLine) return;
-                newLine.remove();
-              })
-            } else {
-              stack.options.forEach(option => {
-                if (stack.duration === 0) {
-                  const newLine = new Konva.Line(option)
-                  this.webBlackboard.layer.add(newLine);
-                  return;
-                }
-                this.animateLineWithDuration(stack.duration, this.webBlackboard.layer, option);
-              })
-            }
-          }, delay)
-          this.playingTimeouts.add(playTimeout);
-        })
-      }
-    }
-    audioElement.onpause = () => {
-      this.webBlackboard.isPlaying = false;
-      this.webBlackboard.updated('paused history Stack')
-    }
-    audioElement.onended = () => {
-      isSeeking = false;
-    }
-    this.audioInfo = audioInfo;
-    this.webBlackboard.historyStack = audioInfo.historyStack;
-*/
