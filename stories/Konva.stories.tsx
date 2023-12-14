@@ -1,8 +1,66 @@
 import React, { useEffect } from 'react'
 import { WebBlackBoard, HistoryStack, RecordBlackboard } from '../src'
 import { Meta } from '@storybook/react'
-import './canvas.scss'
-
+import clsx from 'clsx'
+import './canvas.css'
+const SeekerBar = ({
+  recorderBoard,
+}: {
+  recorderBoard?: RecordBlackboard | null
+}) => {
+  const seekerRef = React.useRef<HTMLDivElement>(null)
+  const controlRef = React.useRef<HTMLDivElement>(null)
+  const seekRef = React.useRef<HTMLDivElement>(null)
+  const bufferRef = React.useRef<HTMLDivElement>(null)
+  const [onSeek, set_onSeek] = React.useState<boolean>(false)
+  const [isPlaying, set_isPlaying] = React.useState<boolean>(false)
+  useEffect(() => {
+    if (!recorderBoard) return
+    recorderBoard.setCallback(({ data, message }) => {
+      set_isPlaying(data.isPlaying)
+    })
+    recorderBoard.setTimeCallback((timeInfo) => {})
+    if (!seekerRef.current) return
+    if (!seekRef.current) return
+    recorderBoard.setSeeker(seekRef.current, seekerRef.current)
+  }, [recorderBoard])
+  if (!recorderBoard) return null
+  return (
+    <div className="audio-controller-wrap">
+      <div className="controller-box">
+        <div className="bottom-box">
+          <div className="btn-box">
+            <button
+              className="btn"
+              onClick={async () => {
+                set_isPlaying(!!recorderBoard?.toggleAudio())
+              }}
+            >
+              {isPlaying ? 'pause' : 'play'}
+            </button>
+          </div>
+          <div className="gap" />
+          <div className="timeline">
+            <div className="wrap" ref={seekerRef}>
+              <div className="seeker">
+                <div
+                  ref={controlRef}
+                  className={clsx({ hide: !onSeek }, 'control-bar')}
+                >
+                  <div className="control-bar-point" />
+                </div>
+                <div ref={seekRef} className={clsx({ hide: onSeek }, 'seek')}>
+                  <div className="seek-point" />
+                </div>
+                <div className="buffered" ref={bufferRef} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 export const Demo = () => {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const audioRef = React.useRef<HTMLAudioElement>(null)
@@ -20,7 +78,7 @@ export const Demo = () => {
   const [historyStack, set_historyStack] = React.useState<
     HistoryStack[] | null
   >(null)
-  const [isPlaying, set_isPlaying] = React.useState<boolean>(false)
+  const [isPlaying, set_isPlaying] = React.useState<boolean>(true)
 
   const [recorder, set_recorder] = React.useState<RecordBlackboard | null>(null)
   useEffect(() => {
@@ -31,7 +89,7 @@ export const Demo = () => {
         undo: values.data.undoStack.length,
         redo: values.data.redoStack.length,
       })
-      set_isPlaying(values.data.isPlaying)
+      // set_isPlaying(values.data.isPlaying)
       set_historyStack(values.data.historyStack)
     })
     set_canvasData(webBoard.currentBrush.getBrushOptions())
@@ -44,7 +102,7 @@ export const Demo = () => {
   return (
     <div className="canvas-wrap">
       <div className="msg">{description}</div>
-      {methods && !isPlaying && recorder && (
+      {methods && recorder && (
         <>
           <div className="control-box">
             <div className="buttons">
@@ -77,6 +135,15 @@ export const Demo = () => {
                 }}
               >
                 redo ({stackLength.redo})
+              </button>
+              <button
+                onClick={() => {
+                  set_canvasData(methods.setMode('dragging'))
+                  set_currentMode('dragging')
+                }}
+                className={currentMode === 'dragging' ? 'active' : ''}
+              >
+                dragging
               </button>
               <button
                 onClick={() => {
@@ -169,7 +236,8 @@ export const Demo = () => {
           </div>
         </>
       )}
-      <audio ref={audioRef} id={'#wb-audio'} controls></audio>
+      <SeekerBar recorderBoard={recorder} />
+      <audio ref={audioRef} id={'wb-audio'} controls></audio>
       <div ref={containerRef}></div>
     </div>
   )

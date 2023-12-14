@@ -7,7 +7,6 @@ const config: StorybookConfig = {
     "@storybook/addon-essentials",
     "@storybook/addon-onboarding",
     "@storybook/addon-interactions",
-    "@storybook/addon-styling-webpack"
   ],
   framework: {
     name: "@storybook/react-webpack5",
@@ -19,6 +18,6 @@ const config: StorybookConfig = {
   },
   docs: {
     autodocs: "tag",
-  },
+  }
 };
 export default config;

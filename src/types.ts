@@ -1,8 +1,8 @@
 import Konva from "konva";
 import { LineConfig } from "konva/lib/shapes/Line";
 
-export type ModeType = 'brush' | 'eraser' | 'delete';
-export type ActionType = 'add' | 'remove';
+export type ModeType = 'brush' | 'eraser' | 'delete' | 'dragging';
+export type ActionType = 'add' | 'remove' | 'panning-after' | 'panning-before';
 
 export type TimelineType = {
   start: number,
@@ -13,7 +13,9 @@ export type StackType = {
   mode: ModeType,
   action: ActionType,
   startAt: number,
-  duration: number
+  duration: number,
+  beforePosition: Konva.Vector2d
+  afterPosition: Konva.Vector2d
 }
 export type AudioInfo = {
   startTime: number,
@@ -89,14 +91,16 @@ export class WebBoardValues {
   brushes: {
     brush: BrushOptions,
     eraser: BrushOptions,
-    'delete': BrushOptions
+    delete: BrushOptions,
+    dragging: BrushOptions
   } = {
       brush: new BrushOptions(),
       eraser: new BrushOptions({
         brushSize: 10,
         color: '#ffffff'
       }),
-      'delete': new BrushOptions(eraseLineDefault)
+      delete: new BrushOptions(eraseLineDefault),
+      dragging: new BrushOptions()
     }
   currentBrush: BrushOptions = this.brushes[this.mode];
   protected lastLine: Konva.Line = new Konva.Line();

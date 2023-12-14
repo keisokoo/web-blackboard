@@ -2,6 +2,7 @@ import Konva from "konva";
 import generateHash from "./helper/generateHash";
 import { LineConfig } from "konva/lib/shapes/Line";
 import { ActionType, CallbackData, ControlStack, HistoryStack, ModeType, StackType, TimelineType } from "./types";
+import { Vector2d } from "konva/lib/types";
 
 class BrushOptions {
   brushSize: number = 2;
@@ -31,19 +32,28 @@ const eraseLineDefault = {
 } as const;
 class WebBlackBoard {
   el: HTMLDivElement;
-  protected cursor: HTMLDivElement | null = null;
+  stage: Konva.Stage;
+  layer: Konva.Layer;
+  historyStack: HistoryStack[] = [];
+  isPlaying: boolean = false;
+  private cursor: HTMLDivElement | null = null;
   private width: number;
   private height: number;
-  private stage: Konva.Stage;
-  layer: Konva.Layer;
   private isPaint: boolean = false;
   private mode: ModeType = 'brush';
   private isEraseLine: boolean = false;
   private undoStack: ControlStack[] = [];
   private redoStack: ControlStack[] = [];
-  historyStack: HistoryStack[] = [];
+  private beforePosition: Vector2d = {
+    x: 0,
+    y: 0
+  }
+  private afterPosition: Vector2d = {
+    x: 0,
+    y: 0
+  }
+  private isDragging: boolean = false;
   private lastRemovedLines: Set<Konva.Line> = new Set();
-  isPlaying: boolean = false;
   private timeline: TimelineType = {
     start: 0,
     end: 0
@@ -51,16 +61,16 @@ class WebBlackBoard {
   brushes: {
     brush: BrushOptions,
     eraser: BrushOptions,
-    'delete': BrushOptions
+    delete: BrushOptions
   } = {
       brush: new BrushOptions(),
       eraser: new BrushOptions({
         brushSize: 10,
         color: '#ffffff'
       }),
-      'delete': new BrushOptions(eraseLineDefault)
+      delete: new BrushOptions(eraseLineDefault)
     }
-  currentBrush: BrushOptions = this.brushes[this.mode];
+  currentBrush: BrushOptions = this.mode !== 'dragging' ? this.brushes[this.mode] : this.brushes['brush'];
   private lastLine: Konva.Line = new Konva.Line();
   cb: (data: CallbackData) => void;
 
@@ -74,6 +84,11 @@ class WebBlackBoard {
       container: el,
       width: this.width,
       height: this.height,
+      draggable: false,
+      x: 0,
+      y: 0,
+      scaleX: 1,
+      scaleY: 1
     });
     this.layer = new Konva.Layer();
     this.stage.add(this.layer);
@@ -81,6 +96,42 @@ class WebBlackBoard {
     this.initializeCursor();
     this.init()
     this.setMode(this.mode);
+    this.addDraggingEvent();
+  }
+  addDraggingEvent() {
+    this.stage.on('pointerdown', (e) => {
+      if (this.mode !== 'dragging') return;
+      console.log('pointerdown on yes dragging@')
+      this.isDragging = true;
+      this.beforePosition = this.getCurrentPosition();
+      this.timeline.start = Date.now();
+      this.el.style.cursor = 'grabbing';
+      this.updated('dragstart');
+    })
+    this.stage.on('pointermove', (e) => {
+      if (this.mode !== 'dragging') return;
+      if (!this.isDragging) return;
+      console.log('pointermove on yes dragging@')
+      this.updated('dragging');
+    })
+    this.stage.on('pointerup', (e) => {
+      if (this.mode !== 'dragging') return;
+      console.log('pointerup on yes dragging@')
+      if (!this.isDragging) return;
+      this.el.style.cursor = 'grab';
+      this.afterPosition = this.getCurrentPosition();
+      this.appendStack([], { actionType: 'panning-after' });
+      this.isDragging = false;
+      this.beforePosition = {
+        x: 0,
+        y: 0
+      }
+      this.afterPosition = {
+        x: 0,
+        y: 0
+      }
+      this.updated('dragend');
+    })
   }
   initializeCursor() {
     if (document.querySelector('#cursor')) {
@@ -117,16 +168,18 @@ class WebBlackBoard {
     actionType?: ActionType,
     withoutHistory?: boolean
   }) {
-    if (!lines || lines.length < 0) return;
+    if (!lines) return;
     const endNow = Date.now();
     if (!this.timeline.start) this.timeline.start = endNow;
     this.timeline.end = endNow;
     const startAt = this.timeline.start;
     const duration = this.timeline.end - this.timeline.start;
-    const currentAction = manuallyControl?.actionType ?? this.mode === 'delete' ? 'remove' : 'add';
-    const stack: StackType = { id: `stack-${generateHash()}`, mode: this.mode, action: currentAction, startAt, duration }
+    const currentAction = manuallyControl?.actionType ? manuallyControl?.actionType : this.mode === 'delete' ? 'remove' : 'add';
+    const stack: StackType = { id: `stack-${generateHash()}`, mode: this.mode, action: currentAction, startAt, duration, beforePosition: { ...this.beforePosition }, afterPosition: { ...this.afterPosition } };
+    console.log('appended afterPosition', stack.afterPosition)
     this.undoStack.push({ ...stack, lines });
     if (!manuallyControl?.withoutHistory) this.historyStack.push({ ...stack, options: this.copyLineOptions(lines) });
+    console.log('this.historyStack first afterPosition', this.historyStack[0].afterPosition)
     this.updated('appendStack');
     this.timeline = {
       start: 0,
@@ -137,18 +190,24 @@ class WebBlackBoard {
     if (this.undoStack.length === 0) return;
     let last = this.undoStack.pop();
     if (!last) return;
-    if (last.lines.length === 0) return;
-    if (last.action === 'remove') {
-      last.lines.forEach(line => {
-        this.layer.add(line);
-      })
-      last.action = 'add';
-      this.redoStack.push(last);
+    if (last.lines.length) {
+      if (last.action === 'remove') {
+        last.lines.forEach(line => {
+          this.layer.add(line);
+        })
+        last.action = 'add';
+        this.redoStack.push(last);
+      } else {
+        last.lines.forEach(line => {
+          line.remove();
+        })
+        last.action = 'remove';
+        this.redoStack.push(last);
+      }
     } else {
-      last.lines.forEach(line => {
-        line.remove();
-      })
-      last.action = 'remove';
+      last.action = 'panning-before';
+      const lastBeforePosition = last.beforePosition;
+      this.stage.position({ x: lastBeforePosition.x, y: lastBeforePosition.y });
       this.redoStack.push(last);
     }
     const { lines, ...rest } = { ...last }
@@ -162,18 +221,24 @@ class WebBlackBoard {
     if (this.redoStack.length === 0) return;
     let last = this.redoStack.pop();
     if (!last) return;
-    if (last.lines.length === 0) return;
-    if (last.action === 'remove') {
-      last.lines.forEach(line => {
-        this.layer.add(line);
-      })
-      last.action = 'add';
-      this.undoStack.push(last);
+    if (last.lines.length) {
+      if (last.action === 'remove') {
+        last.lines.forEach(line => {
+          this.layer.add(line);
+        })
+        last.action = 'add';
+        this.undoStack.push(last);
+      } else {
+        last.lines.forEach(line => {
+          line.remove();
+        })
+        last.action = 'remove';
+        this.undoStack.push(last);
+      }
     } else {
-      last.lines.forEach(line => {
-        line.remove();
-      })
-      last.action = 'remove';
+      last.action = 'panning-after';
+      const lastAfterPosition = last.afterPosition;
+      this.stage.position({ x: lastAfterPosition.x, y: lastAfterPosition.y });
       this.undoStack.push(last);
     }
     const { lines, ...rest } = { ...last }
@@ -248,17 +313,26 @@ class WebBlackBoard {
       }
     });
   }
+  getCurrentPosition(): { x: number, y: number } {
+    const position = JSON.parse(JSON.stringify(this.stage.getPosition()));
+    return { x: position.x, y: position.y }
+  }
   init() {
     this.cursorStyle();
     this.stage.on('pointerdown', () => {
       this.lastRemovedLines.clear();
       this.isPaint = true;
+      this.beforePosition = this.getCurrentPosition();
+      this.afterPosition = this.getCurrentPosition();
+      if (this.mode === 'dragging') return
+      console.log('pointerdown on not dragging')
       if (this.mode === 'delete') {
         this.isEraseLine = true;
         return
       }
       this.timeline.start = Date.now();
       const pos = this.stage.getPointerPosition();
+      const stagePos = this.getCurrentPosition();
       if (!pos) return;
       this.lastLine = new Konva.Line({
         id: `${this.mode}-${generateHash()}`,
@@ -269,7 +343,7 @@ class WebBlackBoard {
         lineCap: this.mode === 'eraser' ? 'square' : 'round',
         lineJoin: this.mode === 'eraser' ? 'miter' : 'round',
         hitStrokeWidth: this.brushes[this.mode].brushSize,
-        points: [pos.x, pos.y, pos.x, pos.y],
+        points: [pos.x - stagePos.x, pos.y - stagePos.y]
       });
       this.layer.add(this.lastLine);
 
@@ -277,6 +351,8 @@ class WebBlackBoard {
       this.updated('pointerdown', true);
     });
     this.stage.on('pointerup', () => {
+      if (this.mode === 'dragging') return
+      console.log('pointerup on not dragging')
       this.isPaint = false;
       this.isEraseLine = false;
       this.updated('pointerup');
@@ -289,9 +365,8 @@ class WebBlackBoard {
       this.isEraseLine = false;
       this.hideCursor()
     })
-    this.el.addEventListener('pointerenter', () => {
-    })
     this.stage.on('pointermove', (e) => {
+      if (this.mode === 'dragging') return
       this.drawCursor(e.evt.offsetX, e.evt.offsetY);
       if (!this.isPaint) {
         return;
@@ -300,16 +375,26 @@ class WebBlackBoard {
         return;
       }
       e.evt.preventDefault();
+      console.log('pointermove on not dragging')
 
       const pos = this.stage.getPointerPosition();
+      const stagePos = this.getCurrentPosition();
       if (!pos) return;
-      let newPoints = this.lastLine.points().concat([pos.x, pos.y]);
+      let newPoints = this.lastLine.points().concat([pos.x - stagePos.x, pos.y - stagePos.y]);
       this.lastLine.points(newPoints);
+      this.layer.batchDraw();
     });
   }
   setMode(newMode: ModeType) {
     this.mode = newMode;
-    this.currentBrush = this.brushes[this.mode];
+    if (this.mode !== 'dragging') this.currentBrush = this.brushes[this.mode];
+    if (this.mode === 'dragging') {
+      this.stage.draggable(true);
+      this.el.style.cursor = 'grab';
+    } else {
+      this.stage.draggable(false);
+      this.el.style.cursor = 'none';
+    }
     this.updated('setMode');
     return this.currentBrush.getBrushOptions();
   }
