@@ -3,6 +3,8 @@ import generateHash from "./helper/generateHash";
 import { LineConfig } from "konva/lib/shapes/Line";
 import { ActionType, CallbackData, ControlStack, HistoryStack, ModeType, StackType, TimelineType } from "./types";
 import { Vector2d } from "konva/lib/types";
+import CanvasEventHandlers from "./handlers/CanvasEventHandlers";
+import BrushCursor from "./ui/BrushCursor";
 
 class BrushOptions {
   brushSize: number = 2;
@@ -36,25 +38,22 @@ class WebBlackBoard {
   layer: Konva.Layer;
   historyStack: HistoryStack[] = [];
   isPlaying: boolean = false;
-  private cursor: HTMLDivElement | null = null;
-  private width: number;
-  private height: number;
-  private isPaint: boolean = false;
-  private mode: ModeType = 'brush';
-  private isEraseLine: boolean = false;
-  private undoStack: ControlStack[] = [];
-  private redoStack: ControlStack[] = [];
-  private beforePosition: Vector2d = {
+  width: number;
+  height: number;
+  isPaint: boolean = false;
+  mode: ModeType = 'brush';
+  undoStack: ControlStack[] = [];
+  redoStack: ControlStack[] = [];
+  beforePosition: Vector2d = {
     x: 0,
     y: 0
   }
-  private afterPosition: Vector2d = {
+  afterPosition: Vector2d = {
     x: 0,
     y: 0
   }
-  private isDragging: boolean = false;
-  private lastRemovedLines: Set<Konva.Line> = new Set();
-  private timeline: TimelineType = {
+  isDragging: boolean = false;
+  timeline: TimelineType = {
     start: 0,
     end: 0
   };
@@ -71,8 +70,10 @@ class WebBlackBoard {
       delete: new BrushOptions(eraseLineDefault)
     }
   currentBrush: BrushOptions = this.mode !== 'dragging' ? this.brushes[this.mode] : this.brushes['brush'];
-  private lastLine: Konva.Line = new Konva.Line();
+  lastLine: Konva.Line = new Konva.Line();
   cb: (data: CallbackData) => void;
+  eventHandlers: CanvasEventHandlers
+  brushCursor: BrushCursor;
 
   constructor(el: HTMLDivElement, cb: (data: CallbackData) => void) {
     this.cb = cb;
@@ -92,58 +93,17 @@ class WebBlackBoard {
     });
     this.layer = new Konva.Layer();
     this.stage.add(this.layer);
-
-    this.initializeCursor();
-    this.init()
+    this.brushCursor = new BrushCursor(this);
     this.setMode(this.mode);
-    this.addDraggingEvent();
+    this.eventHandlers = new CanvasEventHandlers(this);
+    this.init(this.eventHandlers)
   }
-  addDraggingEvent() {
-    this.stage.on('pointerdown', (e) => {
-      if (this.mode !== 'dragging') return;
-      console.log('pointerdown on yes dragging@')
-      this.isDragging = true;
-      this.beforePosition = this.getCurrentPosition();
-      this.timeline.start = Date.now();
-      this.el.style.cursor = 'grabbing';
-      this.updated('dragstart');
-    })
-    this.stage.on('pointermove', (e) => {
-      if (this.mode !== 'dragging') return;
-      if (!this.isDragging) return;
-      console.log('pointermove on yes dragging@')
-      this.updated('dragging');
-    })
-    this.stage.on('pointerup', (e) => {
-      if (this.mode !== 'dragging') return;
-      console.log('pointerup on yes dragging@')
-      if (!this.isDragging) return;
-      this.el.style.cursor = 'grab';
-      this.afterPosition = this.getCurrentPosition();
-      this.appendStack([], { actionType: 'panning-after' });
-      this.isDragging = false;
-      this.beforePosition = {
-        x: 0,
-        y: 0
-      }
-      this.afterPosition = {
-        x: 0,
-        y: 0
-      }
-      this.updated('dragend');
-    })
+  init(handlers: CanvasEventHandlers) {
+    this.stage.on('pointerdown', handlers.stageDown);
+    this.stage.on('pointerup', handlers.stageUp);
+    this.stage.on('pointermove', handlers.stageMove);
+    this.el.addEventListener('pointerleave', handlers.containerLeave)
   }
-  initializeCursor() {
-    if (document.querySelector('#cursor')) {
-      this.cursor = document.querySelector('#cursor')!;
-    } else {
-      this.cursor = document.createElement('div');
-      this.el.appendChild(this.cursor);
-    }
-    this.cursor.id = 'cursor';
-    this.cursor.style.display = 'none';
-  }
-
   getCurrentData(message?: string): CallbackData {
     return {
       message: message ? message : 'done',
@@ -248,18 +208,6 @@ class WebBlackBoard {
     this.historyStack.push({ ...forStackType, options: this.copyLineOptions(lines) });
     this.updated('redo');
   }
-  private cursorStyle() {
-    if (!this.cursor) return;
-    this.cursor.style.position = 'fixed';
-    this.cursor.style.zIndex = '99999';
-    this.cursor.style.pointerEvents = 'none';
-    this.cursor.style.transform = 'translate(-50%, -50%)';
-    this.cursor.style.border = '1px solid #000000';
-  }
-  hideCursor() {
-    if (!this.cursor) return;
-    this.cursor.style.display = 'none';
-  }
   getHistoryStack() {
     return this.historyStack;
   }
@@ -273,125 +221,17 @@ class WebBlackBoard {
     this.undoStack = [];
     this.redoStack = [];
   }
-  drawCursor(x: number, y: number) {
-    if (!this.cursor) return;
-    if (!this.el) return;
-    if (!this.currentBrush) return;
-    if (x < 0 || x > this.width || y < 0 || y > this.height) {
-      this.hideCursor();
-      return;
-    }
-    const brushSize = this.currentBrush.brushSize;
-    this.cursor.style.width = brushSize + 'px';
-    this.cursor.style.height = brushSize + 'px';
-    this.cursor.style.display = 'block';
-    this.cursor.style.top = `${y + this.el.offsetTop}px`;
-    this.cursor.style.left = `${x - this.el.offsetLeft}px`;
-    if (this.mode === 'eraser' || this.mode === 'delete') {
-      this.cursor.style.borderRadius = '0px';
-    } else {
-      this.cursor.style.borderRadius = '50%';
-    }
-  }
-  bindHitLineEvent(line: Konva.Line) {
-    line.on('pointerdown', (e) => {
-      const id = e.target.id();
-      const line = e.target as Konva.Line;
-      if (this.mode === 'delete' && id.startsWith('brush-') && line) {
-        line.remove()
-        this.updated('remove');
-        this.appendStack([line]);
-      }
-    });
-    line.on('pointerover', (e) => {
-      const id = e.target.id();
-      const line = e.target as Konva.Line;
-      if (this.mode === 'delete' && id.startsWith('brush-') && this.isEraseLine && line) {
-        line.remove()
-        this.updated('remove');
-        this.appendStack([line]);
-      }
-    });
-  }
   getCurrentPosition(): { x: number, y: number } {
     const position = JSON.parse(JSON.stringify(this.stage.getPosition()));
     return { x: position.x, y: position.y }
   }
-  init() {
-    this.cursorStyle();
-    this.stage.on('pointerdown', () => {
-      this.lastRemovedLines.clear();
-      this.isPaint = true;
-      this.beforePosition = this.getCurrentPosition();
-      this.afterPosition = this.getCurrentPosition();
-      if (this.mode === 'dragging') return
-      console.log('pointerdown on not dragging')
-      if (this.mode === 'delete') {
-        this.isEraseLine = true;
-        return
-      }
-      this.timeline.start = Date.now();
-      const pos = this.stage.getPointerPosition();
-      const stagePos = this.getCurrentPosition();
-      if (!pos) return;
-      this.lastLine = new Konva.Line({
-        id: `${this.mode}-${generateHash()}`,
-        stroke: this.brushes[this.mode].color,
-        strokeWidth: this.brushes[this.mode].brushSize,
-        globalCompositeOperation:
-          this.mode === 'brush' ? 'source-over' : 'destination-out',
-        lineCap: this.mode === 'eraser' ? 'square' : 'round',
-        lineJoin: this.mode === 'eraser' ? 'miter' : 'round',
-        hitStrokeWidth: this.brushes[this.mode].brushSize,
-        points: [pos.x - stagePos.x, pos.y - stagePos.y]
-      });
-      this.layer.add(this.lastLine);
-
-      this.bindHitLineEvent(this.lastLine);
-      this.updated('pointerdown', true);
-    });
-    this.stage.on('pointerup', () => {
-      if (this.mode === 'dragging') return
-      console.log('pointerup on not dragging')
-      this.isPaint = false;
-      this.isEraseLine = false;
-      this.updated('pointerup');
-      if (this.mode !== 'delete') {
-        this.appendStack([this.lastLine]);
-      }
-    });
-    this.el.addEventListener('pointerleave', () => {
-      this.isPaint = false;
-      this.isEraseLine = false;
-      this.hideCursor()
-    })
-    this.stage.on('pointermove', (e) => {
-      if (this.mode === 'dragging') return
-      this.drawCursor(e.evt.offsetX, e.evt.offsetY);
-      if (!this.isPaint) {
-        return;
-      }
-      if (this.isEraseLine) {
-        return;
-      }
-      e.evt.preventDefault();
-      console.log('pointermove on not dragging')
-
-      const pos = this.stage.getPointerPosition();
-      const stagePos = this.getCurrentPosition();
-      if (!pos) return;
-      let newPoints = this.lastLine.points().concat([pos.x - stagePos.x, pos.y - stagePos.y]);
-      this.lastLine.points(newPoints);
-      this.layer.batchDraw();
-    });
-  }
   setMode(newMode: ModeType) {
     this.mode = newMode;
-    if (this.mode !== 'dragging') this.currentBrush = this.brushes[this.mode];
     if (this.mode === 'dragging') {
       this.stage.draggable(true);
       this.el.style.cursor = 'grab';
     } else {
+      this.currentBrush = this.brushes[this.mode];
       this.stage.draggable(false);
       this.el.style.cursor = 'none';
     }
@@ -410,44 +250,5 @@ class WebBlackBoard {
     this.updated('setColor');
     return this.currentBrush.getBrushOptions();
   }
-
-  // playHistoryStack(historyStack: HistoryStack[]) {
-  //   const playStack = historyStack ?? [];
-  //   if (playStack.length === 0) return;
-  //   this.isPlaying = true;
-  //   this.undoStack = [];
-  //   this.redoStack = [];
-  //   this.updated('replay history Stack', true);
-  //   this.layer.destroyChildren();
-  //   let initialTime = playStack[0].startAt;
-  //   playStack.forEach((stack, index) => {
-  //     let timeOffset = stack.startAt - initialTime;
-  //     const playTimeout = setTimeout(() => {
-  //       if (stack.action === 'remove') {
-  //         stack.options.forEach(option => {
-  //           const newLine = this.layer.findOne(`#${option.id}`)
-  //           if (!newLine) return;
-  //           newLine.remove();
-  //         })
-  //       } else {
-  //         stack.options.forEach(option => {
-  //           if (stack.duration === 0) {
-  //             const newLine = new Konva.Line(option)
-  //             this.layer.add(newLine);
-  //             return;
-  //           }
-  //           this.animateLineWithDuration(stack.duration, this.layer, option);
-  //         })
-  //       }
-  //       if (index === playStack.length - 1) {
-  //         setTimeout(() => {
-  //           this.isPlaying = false;
-  //           this.updated('replayed history Stack')
-  //         }, stack.duration)
-  //       }
-  //     }, timeOffset)
-  //     this.playingTimeouts.add(playTimeout);
-  //   })
-  // }
 }
 export default WebBlackBoard; 

@@ -1,8 +1,14 @@
 import React, { useEffect } from 'react'
-import { WebBlackBoard, HistoryStack, RecordBlackboard } from '../src'
+import {
+  WebBlackBoard,
+  HistoryStack,
+  RecordBlackboard,
+  AudioInfo,
+} from '../src'
 import { Meta } from '@storybook/react'
 import clsx from 'clsx'
 import './canvas.css'
+
 const SeekerBar = ({
   recorderBoard,
 }: {
@@ -14,17 +20,23 @@ const SeekerBar = ({
   const bufferRef = React.useRef<HTMLDivElement>(null)
   const [onSeek, set_onSeek] = React.useState<boolean>(false)
   const [isPlaying, set_isPlaying] = React.useState<boolean>(false)
+  const [audioInfo, set_audioInfo] = React.useState<AudioInfo | null>(null)
   useEffect(() => {
     if (!recorderBoard) return
     recorderBoard.setCallback(({ data, message }) => {
       set_isPlaying(data.isPlaying)
+      set_audioInfo(data.audioInfo)
     })
     recorderBoard.setTimeCallback((timeInfo) => {})
     if (!seekerRef.current) return
     if (!seekRef.current) return
+
     recorderBoard.setSeeker(seekRef.current, seekerRef.current)
-  }, [recorderBoard])
-  if (!recorderBoard) return null
+    return () => {
+      recorderBoard.destroySeeker()
+    }
+  }, [recorderBoard, audioInfo])
+  if (!audioInfo) return null
   return (
     <div className="audio-controller-wrap">
       <div className="controller-box">
@@ -97,6 +109,22 @@ export const Demo = () => {
     if (audioRef.current) {
       const recorderBoard = new RecordBlackboard(webBoard, audioRef.current)
       set_recorder(recorderBoard)
+    }
+  }, [])
+  useEffect(() => {
+    const socket = new WebSocket('wss://dev.fearnot.kr')
+    socket.onopen = () => {
+      console.log('socket open')
+      socket.send('hello')
+    }
+    socket.onmessage = (e) => {
+      console.log('socket message', e)
+    }
+    socket.onclose = () => {
+      console.log('socket close')
+    }
+    return () => {
+      socket.close()
     }
   }, [])
   return (

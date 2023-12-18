@@ -1,6 +1,8 @@
 import Konva from "konva";
 import { LineConfig } from "konva/lib/shapes/Line";
 
+export type FilteredType<T, U> = T extends U ? T : never;
+
 export type ModeType = 'brush' | 'eraser' | 'delete' | 'dragging';
 export type ActionType = 'add' | 'remove' | 'panning-after' | 'panning-before';
 

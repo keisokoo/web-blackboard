@@ -14,6 +14,7 @@ type AudioTimeInfo = {
 type AudioCallbackData = {
   message: string,
   data: {
+    audioInfo: AudioInfo | null
     isPlaying: boolean
     timeInfo: AudioTimeInfo
   }
@@ -82,6 +83,14 @@ class RecordBlackboard {
     this.seekerWrapper.onpointerdown = this.onSeekerDown.bind(this);
     this.seekerWrapper.onpointermove = this.onSeekerMove.bind(this);
     this.seekerWrapper.onpointerup = this.onSeekerUp.bind(this);
+  }
+  destroySeeker() {
+    if (!this.seekerWrapper) return;
+    this.seekerWrapper.onpointerdown = null;
+    this.seekerWrapper.onpointermove = null;
+    this.seekerWrapper.onpointerup = null;
+    this.seekerWrapper = null;
+    this.seekerElement = null;
   }
 
   debouncedFunction = debounce(() => {
@@ -191,6 +200,7 @@ class RecordBlackboard {
       this.cb({
         message: 'loadedmetadata',
         data: {
+          audioInfo,
           isPlaying: false,
           timeInfo: this.parseCurrentTime(this.audioElement.currentTime)
         }
@@ -202,6 +212,7 @@ class RecordBlackboard {
       this.cb({
         message: 'pause',
         data: {
+          audioInfo,
           isPlaying: false,
           timeInfo,
         }
@@ -217,6 +228,7 @@ class RecordBlackboard {
       this.cb({
         message: 'ended',
         data: {
+          audioInfo,
           isPlaying: false,
           timeInfo
         }
@@ -255,6 +267,7 @@ class RecordBlackboard {
         this.cb({
           message: 'timeupdate',
           data: {
+            audioInfo,
             isPlaying: !this.audioElement.paused,
             timeInfo: timeInfo
           }
@@ -263,6 +276,14 @@ class RecordBlackboard {
       this.timeCallback(timeInfo);
       this.updateSeeker(timeInfo.percent)
     }
+    this.cb({
+      message: 'loadedmetadata',
+      data: {
+        audioInfo,
+        isPlaying: false,
+        timeInfo: this.parseCurrentTime(this.audioElement.currentTime)
+      }
+    })
   }
 
   protected setHistoryStack(historyStack: HistoryStack[], seekTime: number) {
@@ -399,7 +420,7 @@ class RecordBlackboard {
     if (!points || points.length < 2) return;
     const newLine = new Konva.Line({ ...rest, points: [] });
 
-    this.webBlackboard.bindHitLineEvent(newLine);
+    this.webBlackboard.eventHandlers.bindHitLineEvent(newLine);
     layer.add(newLine);
     const animation = new Konva.Animation((frame) => {
       if (!frame) return;
