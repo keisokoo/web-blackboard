@@ -5,6 +5,9 @@ import { ActionType, CallbackData, ControlStack, HistoryStack, ModeType, StackTy
 import { Vector2d } from "konva/lib/types";
 import CanvasEventHandlers from "./handlers/CanvasEventHandlers";
 import BrushCursor from "./ui/BrushCursor";
+import { DataPacket_Kind, Room } from "livekit-client";
+
+const encoder = new TextEncoder();
 
 class BrushOptions {
   brushSize: number = 2;
@@ -74,6 +77,7 @@ class WebBlackBoard {
   cb: (data: CallbackData) => void;
   eventHandlers: CanvasEventHandlers
   brushCursor: BrushCursor;
+  brushEventCallback: (data: string) => void = () => { };
 
   constructor(el: HTMLDivElement, cb: (data: CallbackData) => void) {
     this.cb = cb;
@@ -104,6 +108,12 @@ class WebBlackBoard {
     this.stage.on('pointermove', handlers.stageMove);
     this.el.addEventListener('pointerleave', handlers.containerLeave)
   }
+  setBrushEventCallback(room: Room) {
+    this.brushEventCallback = (data: string) => {
+      const strData = encoder.encode(data);
+      room.localParticipant?.publishData(strData, DataPacket_Kind.LOSSY);
+    }
+  }
   getCurrentData(message?: string): CallbackData {
     return {
       message: message ? message : 'done',
@@ -127,7 +137,7 @@ class WebBlackBoard {
   appendStack(lines: Konva.Line[], manuallyControl?: {
     actionType?: ActionType,
     withoutHistory?: boolean
-  }) {
+  }) { // TODO: 인자로 timeline, mode, actionType, beforePosition, afterPosition, lines 받아서 처리하기. (StackType을 미리 받아서 처리)
     if (!lines) return;
     const endNow = Date.now();
     if (!this.timeline.start) this.timeline.start = endNow;

@@ -3,10 +3,14 @@ import WebBlackBoard from "../WebBlackBoard";
 import { ActionType, FilteredType, ModeType } from "../types";
 import generateHash from "../helper/generateHash";
 import { Vector2d } from "konva/lib/types";
+import { LineConfig } from "konva/lib/shapes/Line";
 
 class CanvasEventHandlers {
   webBlackBoard: WebBlackBoard;
   private isEraseLine: boolean = false;
+  private temporaryLine: Map<string, Konva.Line> = new Map();
+  private temporaryTimeline: Map<string, { start: number, end: number }> = new Map();
+  // TODO: temporary관련 Map을 Line이 포함된 원격 StackType으로 만들어야 함, Position도 포함되어야 함. 혹은 LastLine까지 포함하거나.
   constructor(webBlackBoard: WebBlackBoard) {
     this.webBlackBoard = webBlackBoard;
   }
@@ -71,15 +75,33 @@ class CanvasEventHandlers {
     this.webBlackBoard.el.style.cursor = 'grabbing';
     this.updated('dragstart');
   }
+  createLine(lineConfig: LineConfig, remoteId: string = '') {
+    const line = new Konva.Line(lineConfig);
+    if (remoteId) {
+      this.temporaryTimeline.set(remoteId, { start: Date.now(), end: 0 });
+      this.temporaryLine.set(remoteId, line);
+    } else {
+      this.webBlackBoard.timeline.start = Date.now();
+      this.webBlackBoard.lastLine = line
+    }
+    this.webBlackBoard.layer.add(line);
+    this.bindHitLineEvent(line);
+    this.updated('pointerdown', true);
+    if (this.webBlackBoard.brushEventCallback !== undefined) {
+      this.webBlackBoard.brushEventCallback(JSON.stringify({
+        type: 'brush-down',
+        lineConfig
+      }))
+    }
+  }
   addDown(mode: FilteredType<ModeType, 'brush' | 'eraser'>) {
     this.webBlackBoard.isPaint = true;
     this.webBlackBoard.beforePosition = this.getCurrentPosition();
     this.webBlackBoard.afterPosition = this.getCurrentPosition();
-    this.webBlackBoard.timeline.start = Date.now();
     const pos = this.webBlackBoard.stage.getPointerPosition();
     const stagePos = this.getCurrentPosition();
     if (!pos) return;
-    this.webBlackBoard.lastLine = new Konva.Line({
+    const lineConfig: LineConfig = {
       id: `${mode}-${generateHash()}`,
       stroke: this.webBlackBoard.brushes[mode].color,
       strokeWidth: this.webBlackBoard.brushes[mode].brushSize,
@@ -89,11 +111,8 @@ class CanvasEventHandlers {
       lineJoin: mode === 'eraser' ? 'miter' : 'round',
       hitStrokeWidth: this.webBlackBoard.brushes[mode].brushSize,
       points: [pos.x - stagePos.x, pos.y - stagePos.y]
-    });
-    this.webBlackBoard.layer.add(this.webBlackBoard.lastLine);
-
-    this.bindHitLineEvent(this.webBlackBoard.lastLine);
-    this.updated('pointerdown', true);
+    }
+    this.createLine(lineConfig);
   }
   stageDown = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (!this.webBlackBoard) return
@@ -120,6 +139,19 @@ class CanvasEventHandlers {
   deleteMove(mode: FilteredType<ModeType, 'delete'>) {
     return
   }
+  drawLine(line: Konva.Line | string, nextPoints: number[]) {
+    const nextLine = typeof line === 'string' ? this.temporaryLine.get(line) : line;
+    if (!nextLine) return;
+    let newPoints = nextLine.points().concat(nextPoints);
+    nextLine.points(newPoints);
+    this.webBlackBoard.layer.batchDraw();
+    if (this.webBlackBoard.brushEventCallback !== undefined) {
+      this.webBlackBoard.brushEventCallback(JSON.stringify({
+        type: 'brush-move',
+        points: nextPoints
+      }))
+    }
+  }
   addMove(mode: FilteredType<ModeType, 'brush' | 'eraser'>, e: Konva.KonvaEventObject<PointerEvent>) {
     if (!this.webBlackBoard.isPaint) return;
     if (this.isEraseLine) return;
@@ -127,10 +159,8 @@ class CanvasEventHandlers {
     const pos = this.webBlackBoard.stage.getPointerPosition();
     const stagePos = this.getCurrentPosition();
     if (!pos) return;
-    console.log('pos.x - stagePos.x, pos.y - stagePos.y', pos.x - stagePos.x, pos.y - stagePos.y)
-    let newPoints = this.webBlackBoard.lastLine.points().concat([pos.x - stagePos.x, pos.y - stagePos.y]);
-    this.webBlackBoard.lastLine.points(newPoints);
-    this.webBlackBoard.layer.batchDraw();
+    const nextPoints = [pos.x - stagePos.x, pos.y - stagePos.y]
+    this.drawLine(this.webBlackBoard.lastLine, nextPoints);
   }
   stageMove = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (!this.webBlackBoard) return
@@ -171,9 +201,24 @@ class CanvasEventHandlers {
     }
     this.updated('dragend');
   }
-  addUp(mode: FilteredType<ModeType, 'brush' | 'eraser'>) {
+  endLine(line: Konva.Line | string) {
+    const temporaryLineKeyName = typeof line === 'string' ? line : '';
+    const nextLine = typeof line === 'string' ? this.temporaryLine.get(line) : line;
+    if (!nextLine) return;
     this.updated('pointerup');
-    this.webBlackBoard.appendStack([this.webBlackBoard.lastLine]);
+    if (temporaryLineKeyName !== '') {
+      this.temporaryLine.delete(temporaryLineKeyName);
+      this.temporaryTimeline.set(temporaryLineKeyName, { start: this.temporaryTimeline.get(temporaryLineKeyName)!.start, end: Date.now() });
+    }
+    this.webBlackBoard.appendStack([nextLine]);
+    if (this.webBlackBoard.brushEventCallback !== undefined) {
+      this.webBlackBoard.brushEventCallback(JSON.stringify({
+        type: 'brush-up',
+      }))
+    }
+  }
+  addUp(mode: FilteredType<ModeType, 'brush' | 'eraser'>) {
+    this.endLine(this.webBlackBoard.lastLine);
   }
   stageUp = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (!this.webBlackBoard) return

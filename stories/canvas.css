@@ -12,6 +12,7 @@
   gap: 1rem;
   position: relative;
   z-index: 2;
+  flex-wrap: wrap;
 }
 .buttons button {
   cursor: pointer;
@@ -114,8 +115,17 @@ input[type='color'] {
   padding: 1rem;
   border-radius: 4px;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
-  display: none;
-  visibility: hidden;
+}
+.test {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999999;
+  background-color: #fff;
+  padding: 1rem;
+  border-radius: 4px;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
 }
 .audio-controller-wrap {
   position: fixed;

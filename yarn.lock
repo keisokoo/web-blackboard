@@ -6063,7 +6063,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dotenv@npm:^16.0.0":
+"dotenv@npm:^16.0.0, dotenv@npm:^16.3.1":
   version: 16.3.1
   resolution: "dotenv@npm:16.3.1"
   checksum: b95ff1bbe624ead85a3cd70dbd827e8e06d5f05f716f2d0cbc476532d54c7c9469c3bc4dd93ea519f6ad711cb522c00ac9a62b6eb340d5affae8008facc3fbd7
@@ -9843,6 +9843,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-icons@npm:^4.12.0":
+  version: 4.12.0
+  resolution: "react-icons@npm:4.12.0"
+  peerDependencies:
+    react: "*"
+  checksum: 2170f43031ee7365539f72d4075cbe6c7fbf9a66d6cf4494aa9393b194272da0564f5b19d1b24dbfc567c0ac89f5fe5b8974d92dd83f61e252388dde6a226fb8
+  languageName: node
+  linkType: hard
+
 "react-is@npm:18.1.0":
   version: 18.1.0
   resolution: "react-is@npm:18.1.0"
@@ -11603,12 +11612,14 @@ __metadata:
     babel-loader: "npm:^9.1.3"
     clsx: "npm:^2.0.0"
     css-loader: "npm:^6.8.1"
+    dotenv: "npm:^16.3.1"
     jszip: "npm:^3.10.1"
     konva: "npm:^9.2.3"
     livekit-client: "npm:^1.15.4"
     postcss: "npm:^8.4.32"
     react: "npm:^18.2.0"
     react-dom: "npm:^18.2.0"
+    react-icons: "npm:^4.12.0"
     sass: "npm:^1.69.5"
     sass-loader: "npm:^13.3.2"
     storybook: "npm:^7.6.4"

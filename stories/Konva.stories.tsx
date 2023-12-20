@@ -4,10 +4,24 @@ import {
   HistoryStack,
   RecordBlackboard,
   AudioInfo,
+  LiveDrawing,
 } from '../src'
 import { Meta } from '@storybook/react'
 import clsx from 'clsx'
+import {
+  BiBrush,
+  BiEraser,
+  BiRadioCircle,
+  BiRadioCircleMarked,
+  BiRedo,
+  BiSolidEraser,
+  BiSolidHand,
+  BiTime,
+  BiTrash,
+  BiUndo,
+} from 'react-icons/bi'
 import './canvas.css'
+import Konva from 'konva'
 
 const SeekerBar = ({
   recorderBoard,
@@ -76,6 +90,7 @@ const SeekerBar = ({
 export const Demo = () => {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const audioRef = React.useRef<HTMLAudioElement>(null)
+  const testRef = React.useRef<HTMLDivElement>(null)
   const [methods, set_Methods] = React.useState<WebBlackBoard | null>(null)
   const [description, set_description] = React.useState<string>('')
   const [canvasData, set_canvasData] = React.useState<{
@@ -91,8 +106,49 @@ export const Demo = () => {
     HistoryStack[] | null
   >(null)
   const [isPlaying, set_isPlaying] = React.useState<boolean>(true)
-
+  const [liveDrawing, set_liveDrawing] = React.useState<LiveDrawing | null>(
+    null
+  )
   const [recorder, set_recorder] = React.useState<RecordBlackboard | null>(null)
+  const getToken = async () => {
+    const response = await fetch(
+      'https://dev.fearnot.kr/getToken/hi-' + Date.now()
+    )
+    const data = await response.json()
+    console.log('data', data)
+    return data.token
+  }
+  const lastLine = React.useRef<Konva.Line | null>(null)
+  const setLiveDrawing = async () => {
+    const token = await getToken()
+    if (!audioRef.current) return
+    // const live = new LiveDrawing(
+    //   audioRef.current,
+    //   'wss://web-blackboard-p9mq0808.livekit.cloud',
+    //   token,
+    //   (data) => {
+    //     if (!methods) return
+    //     const parsed = JSON.parse(data)
+    //     console.log('parsed', parsed)
+    //     if (parsed.type === 'brush-down') {
+    //       lastLine.current = new Konva.Line(parsed.lineConfig)
+    //       methods.layer.add(lastLine.current)
+    //     }
+    //     if (parsed.type === 'brush-move') {
+    //       if (!lastLine.current) return
+    //       let newPoints = lastLine.current.points().concat(parsed.points)
+    //       lastLine.current.points(newPoints)
+    //       methods.layer.batchDraw()
+    //     }
+    //     if (parsed.type === 'brush-up') {
+    //       console.log('end')
+    //     }
+    //   }
+    // )
+    // methods?.setBrushEventCallback(live.room)
+    // set_liveDrawing(live)
+    // live.connect()
+  }
   useEffect(() => {
     if (!containerRef.current) return
     const webBoard = new WebBlackBoard(containerRef.current, (values) => {
@@ -111,22 +167,6 @@ export const Demo = () => {
       set_recorder(recorderBoard)
     }
   }, [])
-  useEffect(() => {
-    const socket = new WebSocket('wss://dev.fearnot.kr')
-    socket.onopen = () => {
-      console.log('socket open')
-      socket.send('hello')
-    }
-    socket.onmessage = (e) => {
-      console.log('socket message', e)
-    }
-    socket.onclose = () => {
-      console.log('socket close')
-    }
-    return () => {
-      socket.close()
-    }
-  }, [])
   return (
     <div className="canvas-wrap">
       <div className="msg">{description}</div>
@@ -134,19 +174,37 @@ export const Demo = () => {
         <>
           <div className="control-box">
             <div className="buttons">
+              {!liveDrawing ? (
+                <button
+                  onClick={async () => {
+                    setLiveDrawing()
+                  }}
+                >
+                  conn
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    liveDrawing.disconnect()
+                    set_liveDrawing(null)
+                  }}
+                >
+                  dis
+                </button>
+              )}
               <button
                 onClick={() => {
                   recorder.startRecording()
                 }}
               >
-                startRecording
+                <BiRadioCircleMarked />
               </button>
               <button
                 onClick={() => {
                   recorder.stopRecording()
                 }}
               >
-                stopRecording
+                <BiRadioCircle />
               </button>
               <button
                 disabled={stackLength.undo === 0}
@@ -154,7 +212,7 @@ export const Demo = () => {
                   methods.undo()
                 }}
               >
-                undo ({stackLength.undo})
+                <BiUndo />
               </button>
               <button
                 disabled={stackLength.redo === 0}
@@ -162,7 +220,7 @@ export const Demo = () => {
                   methods.redo()
                 }}
               >
-                redo ({stackLength.redo})
+                <BiRedo />
               </button>
               <button
                 onClick={() => {
@@ -171,7 +229,7 @@ export const Demo = () => {
                 }}
                 className={currentMode === 'dragging' ? 'active' : ''}
               >
-                dragging
+                <BiSolidHand />
               </button>
               <button
                 onClick={() => {
@@ -180,7 +238,7 @@ export const Demo = () => {
                 }}
                 className={currentMode === 'brush' ? 'active' : ''}
               >
-                brush
+                <BiBrush />
               </button>
               <button
                 onClick={() => {
@@ -189,7 +247,7 @@ export const Demo = () => {
                 }}
                 className={currentMode === 'eraser' ? 'active' : ''}
               >
-                eraser
+                <BiEraser />
               </button>
               <button
                 onClick={() => {
@@ -198,7 +256,7 @@ export const Demo = () => {
                 }}
                 className={currentMode === 'delete' ? 'active' : ''}
               >
-                delete
+                <BiSolidEraser />
               </button>
               <div className="controls flex-center">
                 <label
@@ -266,6 +324,7 @@ export const Demo = () => {
       )}
       <SeekerBar recorderBoard={recorder} />
       <audio ref={audioRef} id={'wb-audio'} controls></audio>
+      <div ref={testRef} className="test"></div>
       <div ref={containerRef}></div>
     </div>
   )
