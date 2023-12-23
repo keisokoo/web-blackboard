@@ -13,7 +13,7 @@ interface BrushConfig extends ShapeConfig {
   strokeWidth: number;
 }
 const PenBrushDefaultConfig: BrushConfig = {
-  stroke: 'black',
+  stroke: '#000000',
   strokeWidth: 2,
   globalCompositeOperation: 'source-over',
   lineCap: 'round',
@@ -21,7 +21,7 @@ const PenBrushDefaultConfig: BrushConfig = {
   tension: 0.5
 }
 const MarkerBrushDefaultConfig: BrushConfig = {
-  stroke: 'black',
+  stroke: '#000000',
   strokeWidth: 4,
   globalCompositeOperation: 'source-over',
   lineCap: 'round',
@@ -30,7 +30,7 @@ const MarkerBrushDefaultConfig: BrushConfig = {
   opacity: 0.5
 }
 const EraserBrushDefaultConfig: BrushConfig = {
-  stroke: 'white',
+  stroke: '#ffffff',
   strokeWidth: 5,
   globalCompositeOperation: 'destination-out',
   lineCap: 'square',
