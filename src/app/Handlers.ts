@@ -3,10 +3,15 @@ import Blackboard from "./Blackboard";
 import WBLine from "./WBLine";
 import generateHash from "../helper/generateHash";
 import { ModeType, PaintType, isPaintType } from "./types";
+import { KonvaEventObject } from "konva/lib/Node";
 
 class Handlers {
   blackboard: Blackboard;
   isPaint: boolean = false;
+  isPanning: boolean = false;
+  isDeleteMode: boolean = false;
+  startTime: number = 0;
+  endTime: number = 0;
   beforeStagePosition: Konva.Vector2d = {
     x: 0,
     y: 0
@@ -15,7 +20,6 @@ class Handlers {
     x: 0,
     y: 0
   }
-  private isDeleteMode: boolean = false;
   constructor(blackboard: Blackboard) {
     this.blackboard = blackboard
   }
@@ -77,13 +81,25 @@ class Handlers {
     this.bindHitLineEvent(wb);
     this.blackboard.setNewLine(wb);
   }
+  draggingDown(mode: ModeType) {
+    if (mode !== 'panning') return
+    this.isPanning = true;
+    this.beforeStagePosition = this.blackboard.getStagePosition();
+    this.startTime = Date.now();
+    this.blackboard.container.style.cursor = 'grabbing';
+    this.blackboard.updated('dragstart');
+  }
+  deleteModeDown(mode: ModeType) {
+    if (mode !== 'delete') return
+    this.isDeleteMode = true;
+  }
   downEventByMode(mode: ModeType) {
     switch (mode) {
       case 'panning':
-        // this.draggingDown(mode);
+        this.draggingDown(mode);
         break;
       case 'delete':
-        // this.deleteModeDown(mode);
+        this.deleteModeDown(mode);
         break;
       default:
         if(isPaintType(mode)) {
@@ -91,6 +107,13 @@ class Handlers {
         }
         break;
     }
+  }
+  deleteMove(mode: ModeType) {
+    return
+  }
+  draggingMove(mode: ModeType) {
+    if (mode !== 'panning') return;
+    if (!this.isPanning) return;
   }
   addMove(mode: PaintType, e: Konva.KonvaEventObject<PointerEvent>) {
     if(!this.isPaint || this.isDeleteMode) return;
@@ -108,10 +131,10 @@ class Handlers {
   moveEventByMode(mode: ModeType, e: Konva.KonvaEventObject<PointerEvent>) {
     switch (mode) {
       case 'panning':
-        // this.draggingMove(mode);
+        this.draggingMove(mode);
         break;
       case 'delete':
-        // this.deleteModeDown(mode);
+        this.deleteMove(mode);
         break;
       default:
         if(isPaintType(mode)) {
@@ -121,6 +144,7 @@ class Handlers {
     }
   }
   addUp(mode: PaintType) {
+    this.isPaint = false;
     const wb = this.blackboard.getLastLine()
     if (!wb) return;
     this.blackboard.stackManager.addStack({
@@ -140,13 +164,39 @@ class Handlers {
     })
     this.blackboard.updated('paint up');
   }
+  draggingUp(mode: ModeType) {
+    if (mode !== 'panning') return
+    this.isPanning = false;
+    this.afterStagePosition = this.blackboard.getStagePosition();
+    this.endTime = Date.now();
+    this.blackboard.container.style.cursor = 'grab';
+    this.blackboard.stackManager.addStack({
+      id: `${mode}-${generateHash()}`,
+      action: 'after',
+      timeline: {
+        start: this.startTime,
+        end: this.endTime,
+        duration: this.endTime - this.startTime
+      },
+      panning: {
+        before: this.beforeStagePosition,
+        after: this.afterStagePosition
+      }
+    })
+    this.blackboard.updated('dragend');
+  }
+  deleteModeUp(mode: ModeType) {
+    if (mode !== 'delete') return
+    this.isDeleteMode = false;
+    this.isPaint = false;
+  }
   upEventByMode(mode: ModeType) {
     switch (mode) {
       case 'panning':
-        // this.draggingUp(mode);
+        this.draggingUp(mode);
         break;
       case 'delete':
-        // this.deleteModeUp(mode);
+        this.deleteModeUp(mode);
         break;
       default:
         if(isPaintType(mode)) {
@@ -168,6 +218,7 @@ class Handlers {
   stageUp = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (!this.blackboard) return
     this.isPaint = false;
+    this.isDeleteMode = false;
     this.upEventByMode(this.blackboard.mode);
   }
 }

@@ -105,9 +105,8 @@ class CanvasEventHandlers {
       id: `${mode}-${generateHash()}`,
       stroke: this.webBlackBoard.brushes[mode].color,
       strokeWidth: this.webBlackBoard.brushes[mode].brushSize,
-      opacity: 0.5,
-      overwrite: false,
-      tension:0.5,
+      opacity: 1,
+      overwrite: true,
       globalCompositeOperation:
         mode === 'brush' ? 'source-over' : 'destination-out',
       lineCap: mode === 'eraser' ? 'square' : 'round',

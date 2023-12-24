@@ -1,60 +1,119 @@
 import Konva from "konva";
-import { ActionType, PaintType } from "./types";
-
-type PaintStackType = {
-  id: string,
-  action: ActionType
-  timeline: {
-    start: number,
-    end: number,
-    duration: number
-  }
-  paint: {
-    id: string,
-    type: PaintType
-    lineConfig: Konva.LineConfig | null
-    points?: number[]
-  }
-}
-type PanningStackType = {
-  id: string,
-  action: ActionType
-  timeline: {
-    start: number,
-    end: number,
-    duration: number
-  }
-  panning: {
-    before: Konva.Vector2d
-    after: Konva.Vector2d
-  }
-}
-type ImageStackType = {
-  id: string,
-  action: ActionType
-  image: {
-    x: number
-    y: number
-    image: string // base64 encoded image data or URL
-    width: number
-    height: number
-  }
-}
-
-type StackType = PaintStackType | PanningStackType | ImageStackType
-type StackTypeString = 'paint' | 'panning' | 'image'
+import { ActionType, ClearStackType, ImageStackType, PaintStackType, PaintType, PanningStackType, StackType, StackTypeString } from "./types";
+import Blackboard from "./Blackboard";
+import WBLine from "./WBLine";
+import generateHash from "../helper/generateHash";
 
 class StackManager {
   stacks: Map<string, StackType> = new Map();
   undoStack: StackType[] = [];
   redoStack: StackType[] = [];
-  constructor(stacks: StackType[] = []) {
-    stacks.forEach((s) => {
-      this.stacks.set(s.id, s);
+  blackboard: Blackboard;
+  constructor(blackboard: Blackboard, stacks: StackType[] = []) {
+    this.blackboard = blackboard;
+    this.initStacks(stacks)
+  }
+  initStacks(stacks: StackType[]) {
+    stacks.forEach((stack) => {
+      this.runStack(stack);
+      this.stacks.set(stack.id, stack);
     });
+  }
+  redrawStacksByClearIndex(index: number) {
+    const stacks = this.getStacks();
+    const beforeStacks = stacks.slice(0, index);
+    beforeStacks.forEach((stack) => {
+      this.runStack(stack);
+    })
   }
   addStack(stack: StackType) {
     this.stacks.set(stack.id, stack);
+    this.undoStack.push(stack);
+  }
+  reverseStackActionType(stack?: StackType): StackType | undefined {
+    if (!stack) return;
+    if (stack.action === 'add' || stack.action === 'remove') {
+      if (stack.action === 'add') {
+        stack.action = 'remove';
+      } else if (stack.action === 'remove') {
+        stack.action = 'add';
+      }
+      return stack;
+    } else if (stack.action === 'before' || stack.action === 'after') {
+      if (stack.action === 'before') {
+        stack.action = 'after';
+      } else if (stack.action === 'after') {
+        stack.action = 'before';
+      }
+      return stack;
+    }
+    return;
+  }
+  runStack(stack: StackType) {
+    if (this.isPaintStackType(stack)) {
+      if (stack.action === 'add') {
+        const wb = new WBLine({
+          userType: 'local',
+          userId: this.blackboard.userId,
+          lineConfig: {
+            ...stack.paint.lineConfig,
+            id: stack.paint.id,
+            points: stack.paint.points,
+          },
+          deleteAble: !stack.paint.id.includes('eraser')
+        })
+        this.blackboard.layer.add(wb.line);
+        if(wb.line.id().includes('eraser')) {
+          wb.line.moveToTop()
+        }else{
+          wb.line.moveToBottom();
+        }
+        this.blackboard.handlers.bindHitLineEvent(wb);
+      } else if (stack.action === 'remove') {
+        const line = this.blackboard.layer.findOne(`#${stack.paint.id}`) as Konva.Line;
+        if (line) {
+          line.remove();
+        }
+        this.blackboard.layer.draw()
+      }
+    } else if (this.isPanningStackType(stack)) {
+      if (stack.action === 'before') {
+        this.blackboard.stage.position(stack.panning.before);
+      } else if (stack.action === 'after') {
+        this.blackboard.stage.position(stack.panning.after);
+      }
+    } else if (this.isImageStackType(stack)) {
+      if (stack.action === 'before') {
+        this.blackboard.setBackground(stack.image.before, true)
+      } else if (stack.action === 'after') {
+        this.blackboard.setBackground(stack.image.after, true)
+      }
+    } else if (this.isClearStackType(stack)) {
+      if(stack.action === 'before') {
+        this.redrawStacksByClearIndex(stack.clearIndex);
+      } else if(stack.action === 'after') {
+        this.blackboard.clear()
+      }
+    }
+    this.blackboard.layer.draw();
+  }
+  undo() {
+    if (this.undoStack.length === 0) return;
+    let last = this.undoStack.pop();
+    last = this.reverseStackActionType(last);
+    if (!last) return;
+    this.runStack(last);
+    this.redoStack.push(last);
+    this.blackboard.updated('undo');
+  }
+  redo() {
+    if (this.redoStack.length === 0) return;
+    let last = this.redoStack.pop();
+    last = this.reverseStackActionType(last);
+    if (!last) return;
+    this.runStack(last);
+    this.undoStack.push(last);
+    this.blackboard.updated('redo');
   }
   removeStack(id: string) {
     this.stacks.delete(id);
@@ -96,6 +155,9 @@ class StackManager {
   }
   isImageStackType(stack: StackType): stack is ImageStackType {
     return (stack as ImageStackType).image !== undefined;
+  }
+  isClearStackType(stack: StackType): stack is ClearStackType {
+    return (stack as ClearStackType).clearIndex !== undefined;
   }
   getStackType(stack: StackType): { type: StackTypeString, stack: StackType } {
     if (this.isPaintStackType(stack)) {
