@@ -3,7 +3,7 @@ import Blackboard from "./Blackboard";
 import WBLine from "./WBLine";
 import generateHash from "../helper/generateHash";
 import { ModeType, PaintType, isPaintType } from "./types";
-import { KonvaEventObject } from "konva/lib/Node";
+import { StackType } from "../types";
 
 class Handlers {
   blackboard: Blackboard;
@@ -60,6 +60,19 @@ class Handlers {
       }
     });
   }
+  remoteDown(wb: WBLine) {
+    const remoteData = {
+      type: 'remote-down',
+      userType: 'remote',
+      userId: this.blackboard.userId,
+      lineConfig: {
+        id: wb.line.id(),
+        points: wb.line.points(),
+        ...wb.config.lineConfig
+      },
+    }
+    this.blackboard.liveControl.publishData(JSON.stringify(remoteData))
+  }
   addDown(mode: PaintType) {
     this.isPaint = true;
     this.beforeStagePosition = this.blackboard.getStagePosition();
@@ -80,6 +93,7 @@ class Handlers {
     })
     this.bindHitLineEvent(wb);
     this.blackboard.setNewLine(wb);
+    this.remoteDown(wb);
   }
   draggingDown(mode: ModeType) {
     if (mode !== 'panning') return
@@ -114,6 +128,16 @@ class Handlers {
   draggingMove(mode: ModeType) {
     if (mode !== 'panning') return;
     if (!this.isPanning) return;
+    console.log('this.blackboard.getStagePosition();', this.blackboard.getStagePosition())
+  }
+  remoteMove(userId: string, nextPoints: number[]) {
+    const remoteData = {
+      type: 'remote-move',
+      userType: 'remote',
+      userId,
+      nextPoints
+    }
+    this.blackboard.liveControl.publishData(JSON.stringify(remoteData))
   }
   addMove(mode: PaintType, e: Konva.KonvaEventObject<PointerEvent>) {
     if(!this.isPaint || this.isDeleteMode) return;
@@ -126,6 +150,7 @@ class Handlers {
     const nextPoints = [pos.x - stagePos.x, pos.y - stagePos.y]
     const newPoints = wb.line.points().concat(nextPoints);
     wb.line.points(newPoints);
+    this.remoteMove(this.blackboard.userId, nextPoints);
     this.blackboard.layer.batchDraw();
   }
   moveEventByMode(mode: ModeType, e: Konva.KonvaEventObject<PointerEvent>) {
@@ -161,7 +186,7 @@ class Handlers {
         lineConfig: wb.config.lineConfig,
         points: wb.line.points()
       }
-    })
+    }, true, false)
     this.blackboard.updated('paint up');
   }
   draggingUp(mode: ModeType) {
@@ -182,7 +207,7 @@ class Handlers {
         before: this.beforeStagePosition,
         after: this.afterStagePosition
       }
-    })
+    }, true, this.blackboard.isPublisher)
     this.blackboard.updated('dragend');
   }
   deleteModeUp(mode: ModeType) {

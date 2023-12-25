@@ -61,3 +61,17 @@ export type ModeType = PaintType | 'panning' | 'image' | 'delete'
 export function isPaintType(type: ModeType | string): type is PaintType {
   return paintTypes.includes(type as PaintType)
 }
+
+
+export type RoleType = 'publisher' | 'subscriber'
+
+export type AccessType = {
+  mic: boolean
+  draw: boolean
+}
+
+export type UserType = {
+  userId: string
+  role: RoleType
+  access: AccessType
+}

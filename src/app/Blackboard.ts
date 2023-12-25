@@ -6,6 +6,7 @@ import StackManager from "./StackManager";
 import WBLine from "./WBLine";
 import { isPaintType } from "./types";
 import Handlers from "./Handlers";
+import LiveControl from "./LiveControl";
 
 type WebBlackboardCallBackData = {
   message: string
@@ -24,9 +25,11 @@ type BlackboardConfig = {
   image?: string
   stacks?: StackType[] // 원격으로 퍼블리셔의 방에 들어갈 때, 퍼블리셔가 가지고 있는 스택을 전달받아서 초기화한다.
   callback: (data: WebBlackboardCallBackData) => void
+  isPublisher?: boolean
 }
 class Blackboard {
   userId: string
+  isPublisher: boolean = true // false면 subscriber. TODO: subscriber는 최초에 드로잉 불가능하게 해야함. 현재는 로직으로만 처리
   container: HTMLDivElement;
   width: number = window.innerWidth;
   height: number = window.innerHeight;
@@ -40,6 +43,7 @@ class Blackboard {
   handlers: Handlers;
   lines: Map<string, WBLine> = new Map(); // event handler 에서 사용되며, userId를 key로 사용한다. remote 라인과 구별하기 위해 Map을 사용.
   background: Konva.Image | null = null;
+  liveControl: LiveControl
   callback: (data: WebBlackboardCallBackData) => void = () => { };
   constructor(userId: string, container: HTMLDivElement, config?: BlackboardConfig) {
     this.userId = userId
@@ -50,6 +54,7 @@ class Blackboard {
       if (config.image) {
         this.setBackground(config.image, true)
       }
+      this.isPublisher = config.isPublisher ?? true
     }
     this.stage = new Konva.Stage({
       container: this.container,
@@ -66,6 +71,10 @@ class Blackboard {
     this.stage.add(this.layer);
     this.brush = new BrushDefault();
     this.cursor = new Cursor(this);
+    this.liveControl = new LiveControl(this, {
+      userId: this.userId,
+      role: 'publisher'
+    })
     this.handlers = new Handlers(this);
     this.stackManager = new StackManager(this, config?.stacks);
     this.callback = config?.callback || this.callback
@@ -92,7 +101,7 @@ class Blackboard {
     })
     this.updated('clear');
   }
-  private sizeLimit({ width, height }: { width: number, height: number }, limit?: number) {
+  sizeLimit({ width, height }: { width: number, height: number }, limit?: number) {
     limit = limit ?? window.innerWidth
     if (width > limit) {
       width = limit
@@ -104,7 +113,8 @@ class Blackboard {
     const beforeImage = this.background?.id() ?? image
     const imageObj = new Image();
     imageObj.onload = () => {
-      const { width, height } = this.sizeLimit({ width: imageObj.width, height: imageObj.height })
+      // const { width, height } = this.sizeLimit({ width: imageObj.width, height: imageObj.height })
+      const { width , height } = imageObj
       if (this.background) {
         this.background.id(image)
         this.background.image(imageObj)

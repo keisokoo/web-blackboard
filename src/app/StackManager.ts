@@ -3,7 +3,9 @@ import { ActionType, ClearStackType, ImageStackType, PaintStackType, PaintType, 
 import Blackboard from "./Blackboard";
 import WBLine from "./WBLine";
 import generateHash from "../helper/generateHash";
+import { DataPacket_Kind } from "livekit-client";
 
+const encoder = new TextEncoder();
 class StackManager {
   stacks: Map<string, StackType> = new Map();
   undoStack: StackType[] = [];
@@ -12,6 +14,48 @@ class StackManager {
   constructor(blackboard: Blackboard, stacks: StackType[] = []) {
     this.blackboard = blackboard;
     this.initStacks(stacks)
+    this.blackboard.liveControl.setPublishCallback((data)=> { // TODO: 이거 라이브컨트롤에서 처리하도록 수정
+      if(this.blackboard.liveControl.room.state !== 'connected') return
+      if(this.blackboard.liveControl.room.participants.size === 0) return
+      const strData = encoder.encode(data);
+      this.blackboard.liveControl.room.localParticipant?.publishData(strData, DataPacket_Kind.LOSSY);
+    })
+    this.blackboard.liveControl.setReceiveCallback((data)=> { // TODO: 이거 라이브컨트롤에서 처리하도록 수정
+      const decoded = JSON.parse(data);
+      if(!decoded) return
+      if(decoded.type && decoded.type === 'init') {
+        const stacks = decoded.stacks;
+        const imageUrl = decoded.image;
+        this.initStacks(stacks);
+        this.blackboard.setBackground(imageUrl, true);
+      }else if(decoded.type && decoded.type.includes('remote-')){
+        if(decoded.type === 'remote-down'){
+          const wb = new WBLine({
+            userType: 'remote',
+            userId: decoded.userId,
+            lineConfig: decoded.lineConfig,
+            deleteAble: false
+          })
+          this.blackboard.setNewLine(wb);
+          this.blackboard.handlers.bindHitLineEvent(wb);
+        }else if(decoded.type && decoded.type === 'remote-move'){
+          const wb = this.blackboard.getLastLine(decoded.userId);
+          if(!wb) return
+          console.log('decoded.nextPoints', decoded.nextPoints)
+          const newPoints = wb.line.points().concat(decoded.nextPoints);
+          wb.line.points(newPoints);
+          this.blackboard.layer.batchDraw();
+        }else if(decoded.type === 'remote-up'){
+        }
+      } else {
+        const stack = decoded as StackType;
+        this.runStack(stack);
+        this.addStack(stack, false, false);
+      }
+    })
+  }
+  private remoteCallback(stack: StackType) {
+    this.blackboard.liveControl.publishData(JSON.stringify(stack));
   }
   initStacks(stacks: StackType[]) {
     stacks.forEach((stack) => {
@@ -26,9 +70,14 @@ class StackManager {
       this.runStack(stack);
     })
   }
-  addStack(stack: StackType) {
-    this.stacks.set(stack.id, stack);
-    this.undoStack.push(stack);
+  addStack(stack: StackType, pushUndoStack: boolean = true, remote: boolean = true) {
+    const newStackId = `stack-${generateHash()}`;
+    this.stacks.set(newStackId, stack);
+    if(pushUndoStack) {
+      this.undoStack.push(stack)
+      this.redoStack = [];
+    };
+    if(remote) this.remoteCallback(stack);
   }
   reverseStackActionType(stack?: StackType): StackType | undefined {
     if (!stack) return;
@@ -105,6 +154,10 @@ class StackManager {
     this.runStack(last);
     this.redoStack.push(last);
     this.blackboard.updated('undo');
+    this.addStack(last, false);
+  }
+  clearRedoStack() {
+    this.redoStack = [];
   }
   redo() {
     if (this.redoStack.length === 0) return;
@@ -114,6 +167,7 @@ class StackManager {
     this.runStack(last);
     this.undoStack.push(last);
     this.blackboard.updated('redo');
+    this.addStack(last, false);
   }
   removeStack(id: string) {
     this.stacks.delete(id);

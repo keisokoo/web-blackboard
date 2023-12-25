@@ -2030,6 +2030,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@livekit/egress-sdk@npm:^0.1.2":
+  version: 0.1.2
+  resolution: "@livekit/egress-sdk@npm:0.1.2"
+  peerDependencies:
+    livekit-client: ^1.7.0
+  checksum: fae9bcdd70d936cdfce1db937c129393c31919e617dbf5e3f60cf8282a557c573213dc4acbdd6effb0a6f559441f58423fceec262089318a1986159fefc0bea2
+  languageName: node
+  linkType: hard
+
 "@mdx-js/react@npm:^2.1.5":
   version: 2.3.0
   resolution: "@mdx-js/react@npm:2.3.0"
@@ -11596,6 +11605,7 @@ __metadata:
     "@babel/preset-typescript": "npm:^7.23.3"
     "@ffmpeg/ffmpeg": "npm:^0.12.7"
     "@ffmpeg/util": "npm:^0.12.1"
+    "@livekit/egress-sdk": "npm:^0.1.2"
     "@storybook/addon-essentials": "npm:^7.6.4"
     "@storybook/addon-interactions": "npm:^7.6.4"
     "@storybook/addon-links": "npm:^7.6.4"

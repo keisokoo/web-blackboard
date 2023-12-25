@@ -24,8 +24,18 @@ import { ModeType, StackType } from '../src/app/types'
 import { stackSamples } from './samples'
 
 const randomUserId = 'local-' + generateHash()
+
+const getToken = async (userId:string) => {
+  const response = await fetch(
+    'https://dev.fearnot.kr/getToken/' + userId
+  )
+  const data = await response.json()
+  return data.token
+}
+
 export const Demo = () => {
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const audioRef = React.useRef<HTMLAudioElement>(null)
   const [blackboard, set_blackboard] = React.useState<Blackboard | null>(null)
   const [currentMode, set_currentMode] = React.useState<ModeType>('pen')
   const [controlStacks, set_controlStacks] = React.useState<{
@@ -35,8 +45,15 @@ export const Demo = () => {
     undoStack: [],
     redoStack: [],
   })
+
   useEffect(() => {
     if (!containerRef.current) return
+    async function getTokenAndConnect(blackboard: Blackboard) {
+      if (!audioRef.current) return
+      const token = await getToken(randomUserId)
+      console.log('token', token)
+      blackboard.liveControl.init(audioRef.current, 'wss://web-blackboard-p9mq0808.livekit.cloud', token)
+    }
     const webBoard = new Blackboard(randomUserId, containerRef.current, {
       stacks: stackSamples, // publisher에게서 받아온 stacks를 이용해, 이 방법 외에도, stackManager.initStacks를 통해 직접 stacks를 초기화 할 수 있음.
       image: `https://i.namu.wiki/i/3_l4kqqEPO_6VJL22_PoUvX_CXM_rM3kIDMND3daznwD7BCQqLEEww0HUPQnB9DPB9yt6A6TQI175slj4Ixwfw.webp`,
@@ -49,11 +66,26 @@ export const Demo = () => {
       },
     })
     set_blackboard(webBoard)
+    getTokenAndConnect(webBoard)
   }, [])
   return (
     <div className="canvas-wrap">
       <div className="control-box">
         <div className="buttons">
+          <button
+            onClick={() => {
+              blackboard?.liveControl.connect()
+            }}
+            >
+              <BiRadioCircle />
+            </button>
+            <button
+            onClick={() => {
+              blackboard?.liveControl.disconnect()
+            }}
+            >
+              <BiRadioCircleMarked />
+            </button>
           <button
             onClick={() => {
               blackboard?.clear()
@@ -153,6 +185,7 @@ export const Demo = () => {
           </button>
         </div>
       </div>
+      <audio ref={audioRef} id={'wb-audio'} controls></audio>
       <div ref={containerRef}></div>
     </div>
   )

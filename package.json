@@ -59,6 +59,7 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.7",
     "@ffmpeg/util": "^0.12.1",
+    "@livekit/egress-sdk": "^0.1.2",
     "dotenv": "^16.3.1",
     "jszip": "^3.10.1",
     "konva": "^9.2.3",
