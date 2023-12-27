@@ -48,13 +48,18 @@ class Handlers {
   private drawCursor(x: number, y: number) {
     this.blackboard.cursor.drawCursor(x, y);
   }
+  private getDrawable(){
+    return this.blackboard.userList.get(this.blackboard.user.id)?.access.draw
+  }
   bindHitLineEvent(wb: WBLine) {
     wb.line.on('pointerdown', (e) => {
+      if(!this.getDrawable()) return;
       if (this.blackboard.mode === 'delete' && wb.line) {
         this.deleteLine(wb)
       }
     });
     wb.line.on('pointerover', (e) => {
+      if(!this.getDrawable()) return;
       if (this.blackboard.mode === 'delete' && this.isDeleteMode && wb.line) {
         this.deleteLine(wb)
       }
@@ -64,7 +69,7 @@ class Handlers {
     const remoteData = {
       type: 'remote-down',
       userType: 'remote',
-      userId: this.blackboard.userId,
+      userId: this.blackboard.user.id,
       lineConfig: {
         id: wb.line.id(),
         points: wb.line.points(),
@@ -74,6 +79,7 @@ class Handlers {
     this.blackboard.liveControl.publishData(JSON.stringify(remoteData))
   }
   addDown(mode: PaintType) {
+    if(!this.getDrawable()) return;
     this.isPaint = true;
     this.beforeStagePosition = this.blackboard.getStagePosition();
     this.afterStagePosition = this.blackboard.getStagePosition();
@@ -83,7 +89,7 @@ class Handlers {
     const brushConfig = this.blackboard.brush.getBrushConfig();
     const wb = new WBLine({
       userType: 'local',
-      userId: this.blackboard.userId,
+      userId: this.blackboard.user.id,
       lineConfig: {
         id: `${mode}-${generateHash()}`,
         points: [pos.x - stagePos.x, pos.y - stagePos.y],
@@ -140,6 +146,7 @@ class Handlers {
     this.blackboard.liveControl.publishData(JSON.stringify(remoteData))
   }
   addMove(mode: PaintType, e: Konva.KonvaEventObject<PointerEvent>) {
+    if(!this.getDrawable()) return;
     if(!this.isPaint || this.isDeleteMode) return;
     e.evt.preventDefault();
     const pos = this.blackboard.stage.getPointerPosition();
@@ -150,7 +157,7 @@ class Handlers {
     const nextPoints = [pos.x - stagePos.x, pos.y - stagePos.y]
     const newPoints = wb.line.points().concat(nextPoints);
     wb.line.points(newPoints);
-    this.remoteMove(this.blackboard.userId, nextPoints);
+    this.remoteMove(this.blackboard.user.id, nextPoints);
     this.blackboard.layer.batchDraw();
   }
   moveEventByMode(mode: ModeType, e: Konva.KonvaEventObject<PointerEvent>) {
@@ -169,6 +176,7 @@ class Handlers {
     }
   }
   addUp(mode: PaintType) {
+    if(!this.getDrawable()) return;
     this.isPaint = false;
     const wb = this.blackboard.getLastLine()
     if (!wb) return;

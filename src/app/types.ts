@@ -1,4 +1,5 @@
 import Konva from "konva"
+import { RemoteParticipant, RemoteTrackPublication } from "livekit-client"
 
 export type ClearStackType = {
   id: string,
@@ -63,7 +64,7 @@ export function isPaintType(type: ModeType | string): type is PaintType {
 }
 
 
-export type RoleType = 'publisher' | 'subscriber'
+export type RoleType = 'presenter' | 'audience'
 
 export type AccessType = {
   mic: boolean
@@ -75,3 +76,12 @@ export type UserType = {
   role: RoleType
   access: AccessType
 }
+export type BlackboardUserType = {
+  id: string
+  nickname: string
+  role: RoleType
+}
+export type LiveControlUserType = {
+    access: AccessType
+    userType: 'local' | 'remote'
+  } & BlackboardUserType

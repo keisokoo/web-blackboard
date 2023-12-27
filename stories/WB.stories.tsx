@@ -54,7 +54,11 @@ export const Demo = () => {
       console.log('token', token)
       blackboard.liveControl.init(audioRef.current, 'wss://web-blackboard-p9mq0808.livekit.cloud', token)
     }
-    const webBoard = new Blackboard(randomUserId, containerRef.current, {
+    const webBoard = new Blackboard({
+      id: randomUserId,
+      nickname: 'local',
+      role: 'presenter'
+    }, containerRef.current, {
       stacks: stackSamples, // publisher에게서 받아온 stacks를 이용해, 이 방법 외에도, stackManager.initStacks를 통해 직접 stacks를 초기화 할 수 있음.
       image: `https://i.namu.wiki/i/3_l4kqqEPO_6VJL22_PoUvX_CXM_rM3kIDMND3daznwD7BCQqLEEww0HUPQnB9DPB9yt6A6TQI175slj4Ixwfw.webp`,
       callback: (value) => {

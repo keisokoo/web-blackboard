@@ -14,45 +14,6 @@ class StackManager {
   constructor(blackboard: Blackboard, stacks: StackType[] = []) {
     this.blackboard = blackboard;
     this.initStacks(stacks)
-    this.blackboard.liveControl.setPublishCallback((data)=> { // TODO: 이거 라이브컨트롤에서 처리하도록 수정
-      if(this.blackboard.liveControl.room.state !== 'connected') return
-      if(this.blackboard.liveControl.room.participants.size === 0) return
-      const strData = encoder.encode(data);
-      this.blackboard.liveControl.room.localParticipant?.publishData(strData, DataPacket_Kind.LOSSY);
-    })
-    this.blackboard.liveControl.setReceiveCallback((data)=> { // TODO: 이거 라이브컨트롤에서 처리하도록 수정
-      const decoded = JSON.parse(data);
-      if(!decoded) return
-      if(decoded.type && decoded.type === 'init') {
-        const stacks = decoded.stacks;
-        const imageUrl = decoded.image;
-        this.initStacks(stacks);
-        this.blackboard.setBackground(imageUrl, true);
-      }else if(decoded.type && decoded.type.includes('remote-')){
-        if(decoded.type === 'remote-down'){
-          const wb = new WBLine({
-            userType: 'remote',
-            userId: decoded.userId,
-            lineConfig: decoded.lineConfig,
-            deleteAble: false
-          })
-          this.blackboard.setNewLine(wb);
-          this.blackboard.handlers.bindHitLineEvent(wb);
-        }else if(decoded.type && decoded.type === 'remote-move'){
-          const wb = this.blackboard.getLastLine(decoded.userId);
-          if(!wb) return
-          console.log('decoded.nextPoints', decoded.nextPoints)
-          const newPoints = wb.line.points().concat(decoded.nextPoints);
-          wb.line.points(newPoints);
-          this.blackboard.layer.batchDraw();
-        }else if(decoded.type === 'remote-up'){
-        }
-      } else {
-        const stack = decoded as StackType;
-        this.runStack(stack);
-        this.addStack(stack, false, false);
-      }
-    })
   }
   private remoteCallback(stack: StackType) {
     this.blackboard.liveControl.publishData(JSON.stringify(stack));
@@ -73,11 +34,11 @@ class StackManager {
   addStack(stack: StackType, pushUndoStack: boolean = true, remote: boolean = true) {
     const newStackId = `stack-${generateHash()}`;
     this.stacks.set(newStackId, stack);
-    if(pushUndoStack) {
+    if (pushUndoStack) {
       this.undoStack.push(stack)
       this.redoStack = [];
     };
-    if(remote) this.remoteCallback(stack);
+    if (remote) this.remoteCallback(stack);
   }
   reverseStackActionType(stack?: StackType): StackType | undefined {
     if (!stack) return;
@@ -103,7 +64,7 @@ class StackManager {
       if (stack.action === 'add') {
         const wb = new WBLine({
           userType: 'local',
-          userId: this.blackboard.userId,
+          userId: this.blackboard.user.id,
           lineConfig: {
             ...stack.paint.lineConfig,
             id: stack.paint.id,
@@ -112,9 +73,9 @@ class StackManager {
           deleteAble: !stack.paint.id.includes('eraser')
         })
         this.blackboard.layer.add(wb.line);
-        if(wb.line.id().includes('eraser')) {
+        if (wb.line.id().includes('eraser')) {
           wb.line.moveToTop()
-        }else{
+        } else {
           wb.line.moveToBottom();
         }
         this.blackboard.handlers.bindHitLineEvent(wb);
@@ -138,9 +99,9 @@ class StackManager {
         this.blackboard.setBackground(stack.image.after, true)
       }
     } else if (this.isClearStackType(stack)) {
-      if(stack.action === 'before') {
+      if (stack.action === 'before') {
         this.redrawStacksByClearIndex(stack.clearIndex);
-      } else if(stack.action === 'after') {
+      } else if (stack.action === 'after') {
         this.blackboard.clear()
       }
     }

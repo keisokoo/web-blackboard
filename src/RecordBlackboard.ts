@@ -55,8 +55,12 @@ class RecordBlackboard {
   constructor(webBlackboard: WebBlackBoard, audioElement: HTMLAudioElement) {
     this.audioElement = audioElement;
     this.webBlackboard = webBlackboard;
-    this.backgroundLayer = new Konva.Layer();
-    this.drawingLayer = new Konva.Layer();
+    this.backgroundLayer = new Konva.Layer({
+      id: 'backgroundLayer'
+    });
+    this.drawingLayer = new Konva.Layer({
+      id: 'drawingLayer'
+    });
     this.webBlackboard.stage.add(this.backgroundLayer);
     this.webBlackboard.stage.add(this.drawingLayer);
   }

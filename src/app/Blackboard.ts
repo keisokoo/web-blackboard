@@ -1,5 +1,5 @@
 import Konva from "konva";
-import { ModeType, StackType } from "./types";
+import { BlackboardUserType, LiveControlUserType, ModeType, RoleType, StackType } from "./types";
 import BrushDefault from "./BrushDefault";
 import Cursor from "./Cursor";
 import StackManager from "./StackManager";
@@ -16,6 +16,8 @@ type WebBlackboardCallBackData = {
     undoStack: StackType[]
     redoStack: StackType[]
     stacks: StackType[]
+    userList: Map<string, LiveControlUserType>
+    access?: LiveControlUserType['access']
   }
 }
 
@@ -28,7 +30,8 @@ type BlackboardConfig = {
   isPublisher?: boolean
 }
 class Blackboard {
-  userId: string
+  user: BlackboardUserType
+  userList: Map<string, LiveControlUserType> = new Map();
   isPublisher: boolean = true // false면 subscriber. TODO: subscriber는 최초에 드로잉 불가능하게 해야함. 현재는 로직으로만 처리
   container: HTMLDivElement;
   width: number = window.innerWidth;
@@ -45,8 +48,9 @@ class Blackboard {
   background: Konva.Image | null = null;
   liveControl: LiveControl
   callback: (data: WebBlackboardCallBackData) => void = () => { };
-  constructor(userId: string, container: HTMLDivElement, config?: BlackboardConfig) {
-    this.userId = userId
+  onClose: () => void = () => { };
+  constructor(user: BlackboardUserType, container: HTMLDivElement, config: BlackboardConfig) {
+    this.user = user
     this.container = container;
     if (config) {
       this.width = config.width || this.width;
@@ -71,12 +75,9 @@ class Blackboard {
     this.stage.add(this.layer);
     this.brush = new BrushDefault();
     this.cursor = new Cursor(this);
-    this.liveControl = new LiveControl(this, {
-      userId: this.userId,
-      role: 'publisher'
-    })
-    this.handlers = new Handlers(this);
     this.stackManager = new StackManager(this, config?.stacks);
+    this.liveControl = new LiveControl(this)
+    this.handlers = new Handlers(this);
     this.callback = config?.callback || this.callback
     window.addEventListener('resize', () => { // TODO: refactor this 
       this.width = window.innerWidth;
@@ -86,6 +87,9 @@ class Blackboard {
       this.stage.draw();
     })
     this.setStageHandler(this.handlers);
+  }
+  setOnClose(onClose: () => void) {
+    this.onClose = onClose
   }
   clear(clearControlStacks: boolean = false) {
     this.layer.destroyChildren();
@@ -162,7 +166,7 @@ class Blackboard {
     this.updated('paint down');
   }
   getLastLine(id?: string) { // TODO: userId is wb's ID, 호출한 곳에서 remote 라인일 경우를 고려해야함
-    return this.lines.get(id ? id : this.userId);
+    return this.lines.get(id ? id : this.user.id);
   }
   getMode() {
     return this.mode;
@@ -184,6 +188,8 @@ class Blackboard {
     return currentBrush
   }
   updated<T extends object>(message: string, extraData?: T) {
+    const localUser = this.userList.get(this.user.id)
+    
     this.callback({
       message,
       data: {
@@ -192,9 +198,14 @@ class Blackboard {
         undoStack: this.stackManager.getUndoStack(),
         redoStack: this.stackManager.getRedoStack(),
         stacks: this.stackManager.getStacks(),
+        userList: this.userList,
+        access: localUser?.access,
         ...extraData
       }
     })
+  }
+  getUserInfo(userId: string) {
+    return this.userList.get(userId)
   }
   getStagePosition(): { x: number, y: number } {
     const position = JSON.parse(JSON.stringify(this.stage.getPosition()));
