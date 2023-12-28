@@ -1,39 +1,10 @@
 import { Room, RemoteParticipant, LocalTrackPublication, createLocalAudioTrack, Participant, ParticipantEvent, RemoteTrack, RemoteTrackPublication, RoomEvent, Track, DataPacket_Kind } from "livekit-client";
 import Blackboard from "./Blackboard";
-import { UserType, AccessType, BlackboardUserType, LiveControlUserType, StackType, RoleType } from "./types";
+import { UserType, AccessType, BlackboardUserType, LiveControlUserType, StackType, RoleType, RecordDataType, EgressInfo } from "./types";
 import WBLine from "./WBLine";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-enum EgressStatus {
-  EGRESS_STARTING = 0,
-  EGRESS_ACTIVE = 1,
-  EGRESS_ENDING = 2,
-  EGRESS_COMPLETE = 3,
-  EGRESS_FAILED = 4,
-  EGRESS_ABORTED = 5,
-  EGRESS_LIMIT_REACHED = 6,
-  UNRECOGNIZED = -1
-}
-interface FileInfo {
-  filename?: string;
-  startedAt?: number;
-  endedAt?: number;
-  duration?: number;
-  size?: number;
-  location?: string;
-}
-type EgressInfo = {
-  egressId?: string;
-  roomId?: string;
-  roomName?: string;
-  status?: EgressStatus;
-  startedAt?: number;
-  endedAt?: number;
-  updatedAt?: number;
-  error?: string;
-  fileResults?: FileInfo[];
-}
 class LiveControl {
   isRecording: boolean = false;
   egressInfo: EgressInfo | null = null;
@@ -43,7 +14,14 @@ class LiveControl {
   publishTrack: LocalTrackPublication | null = null;
   audioElement: HTMLAudioElement | null = null;
 
+  recordData: RecordDataType | null = null;
+
   blackboard: Blackboard;
+
+  recording?: {
+    start: (roomName: string) => Promise<EgressInfo | null>,
+    stop: (egressId: string) => Promise<EgressInfo | null>,
+  }
   constructor(blackboard: Blackboard) {
     this.blackboard = blackboard;
     this.addUser(this.blackboard.user)
@@ -61,6 +39,12 @@ class LiveControl {
       }
     });
     this.setRoomEvent(this.room)
+  }
+  setRecording(recording: {
+    start: (roomName: string) => Promise<EgressInfo | null>,
+    stop: (egressId: string) => Promise<EgressInfo | null>,
+  }) {
+    this.recording = recording;
   }
   setURL(url: string) {
     this.wsURL = url;
@@ -95,7 +79,7 @@ class LiveControl {
           track.unmute();
         })
       }
-      if(decoded.type === 'draw-on') {
+      if (decoded.type === 'draw-on') {
         this.blackboard.userList.set(decoded.target, {
           ...this.blackboard.userList.get(decoded.target)!,
           access: {
@@ -105,7 +89,7 @@ class LiveControl {
         })
         this.blackboard.updated('draw-on')
       }
-      if(decoded.type === 'draw-off') {
+      if (decoded.type === 'draw-off') {
         this.blackboard.userList.set(decoded.target, {
           ...this.blackboard.userList.get(decoded.target)!,
           access: {
@@ -173,8 +157,11 @@ class LiveControl {
       currentRoom.participants.forEach((participant) => {
         console.log('participant', participant)
       })
-      if(this.blackboard.user.role === 'presenter' && !this.isRecording){
-        this.startRecording()
+      if (this.blackboard.user.role === 'presenter' && !this.isRecording) {
+        if (this.recording?.start) {
+          const recordingData = await this.recording.start(currentRoom.name)
+          this.egressInfo = recordingData
+        }
       }
     })
     currentRoom.on(RoomEvent.TrackMuted, (track, participant) => {
@@ -259,70 +246,14 @@ class LiveControl {
     if (this.blackboard.user.role !== 'presenter') localParticipant?.mute()
     this.room.localParticipant.setTrackSubscriptionPermissions(true)
   }
-  async startRecording() {
-    if(!this.room) return
-    if(this.room.isRecording) return
-    if(this.isRecording) return
-    this.isRecording = true
-    const recording = await fetch(`https://dev.fearnot.kr/start-recording`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        roomName: this.room.name,
-      })
-    })
-    const recordingData = await recording.json() as {
-      message: string,
-      data?: {
-        startTime: number,
-        egressInfo: EgressInfo
-      }
-    }
-    this.egressInfo = recordingData.data?.egressInfo ?? null
-    console.log('recordingData', recordingData)
-  }
-  async stopRecording() {
-    console.log('stopRecording', this.room, this.egressInfo, this.isRecording)
-    if(!this.room) return
-    if(!this.room.isRecording) return
-    if(!this.egressInfo) return
-    console.log('called stopRecording')
-    this.isRecording = false
-    const recording = await fetch(`https://dev.fearnot.kr/stop-recording`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        egressId: this.egressInfo.egressId,
-      })
-    })
-    const recordingData = await recording.json() as {
-      message: string,
-      data?: {
-        endTime: number,
-        egressInfo: EgressInfo
-      }
-    }
-    console.log('recordingData', recordingData)
-    this.egressInfo = recordingData.data?.egressInfo ?? null
-    if(this.egressInfo){
-      const stacks = this.blackboard.stackManager.getStacks()
-      const audioData = this.groupingPlayingData(this.egressInfo, stacks)
-      console.log('audioData', audioData)
-    }
-  }
-  groupingPlayingData(egressInfo:EgressInfo, stacks: StackType[]) {
+  groupingPlayingData(egressInfo: EgressInfo | null, stacks: StackType[]): RecordDataType | null {
+    if (!egressInfo) return null
     const fileResult = egressInfo.fileResults?.[0]
     const startTime = fileResult?.startedAt ?? egressInfo.startedAt
     const endTime = fileResult?.endedAt
     const duration = fileResult?.duration
-
     return {
       filename: fileResult?.filename ?? '',
-      url: this.blackboard.bucketUrl + fileResult?.filename,
       audioInfo: {
         startTime: startTime ?? 0,
         endTime: endTime ?? 0,
@@ -332,8 +263,12 @@ class LiveControl {
     }
   }
   async disconnect() {
-    if(this.blackboard.user.role === 'presenter'){
-      await this.stopRecording()
+    if (this.blackboard.user.role === 'presenter') {
+      if (this.recording?.stop) {
+        const recordingData = await this.recording.stop(this.egressInfo?.egressId ?? '')
+        this.egressInfo = recordingData
+        this.recordData = this.groupingPlayingData(this.egressInfo, this.blackboard.stackManager.getStacks())
+      }
     }
     await this.room.disconnect();
     this.blackboard.onClose()
@@ -369,15 +304,15 @@ class LiveControl {
     }
     this.publishData(JSON.stringify(data))
   }
-  toggleDrawAble(userId: string){
+  toggleDrawAble(userId: string) {
     const selectedUser = this.blackboard.userList.get(userId)
-    if(selectedUser){
-      if(selectedUser.access.draw){
+    if (selectedUser) {
+      if (selectedUser.access.draw) {
         this.offRemoteDraw(userId)
       } else {
         this.onRemoteDraw(userId)
       }
-      this.blackboard.userList.set(userId, {...selectedUser, access: {...selectedUser.access, draw: !selectedUser.access.draw}})
+      this.blackboard.userList.set(userId, { ...selectedUser, access: { ...selectedUser.access, draw: !selectedUser.access.draw } })
     }
     this.blackboard.updated('toggle draw able')
   }

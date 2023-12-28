@@ -64,7 +64,7 @@ export function isPaintType(type: ModeType | string): type is PaintType {
 }
 
 
-export type RoleType = 'presenter' | 'audience'
+export type RoleType = 'presenter' | 'audience' | 'player'
 
 export type AccessType = {
   mic: boolean
@@ -82,6 +82,49 @@ export type BlackboardUserType = {
   role: RoleType
 }
 export type LiveControlUserType = {
-    access: AccessType
-    userType: 'local' | 'remote'
-  } & BlackboardUserType
+  access: AccessType
+  userType: 'local' | 'remote'
+} & BlackboardUserType
+
+
+
+export enum EgressStatus {
+  EGRESS_STARTING = 0,
+  EGRESS_ACTIVE = 1,
+  EGRESS_ENDING = 2,
+  EGRESS_COMPLETE = 3,
+  EGRESS_FAILED = 4,
+  EGRESS_ABORTED = 5,
+  EGRESS_LIMIT_REACHED = 6,
+  UNRECOGNIZED = -1
+}
+export interface FileInfo {
+  filename?: string;
+  startedAt?: number;
+  endedAt?: number;
+  duration?: number;
+  size?: number;
+  location?: string;
+}
+export type EgressInfo = {
+  egressId?: string;
+  roomId?: string;
+  roomName?: string;
+  status?: EgressStatus;
+  startedAt?: number;
+  endedAt?: number;
+  updatedAt?: number;
+  error?: string;
+  fileResults?: FileInfo[];
+}
+
+
+export type RecordDataType = {
+  filename: string;
+  audioInfo: {
+    startTime: number;
+    endTime: number;
+    duration: number;
+    historyStack: StackType[];
+  }
+}

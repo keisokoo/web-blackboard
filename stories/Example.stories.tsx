@@ -1,13 +1,11 @@
 import React, { useCallback, useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import Blackboard from '../src/app/Blackboard'
-import { ModeType, RoleType, StackType } from '../src/app/types'
+import { EgressInfo, ModeType, RoleType, StackType } from '../src/app/types'
 import './canvas.css'
 import generateHash from '../src/helper/generateHash'
 import clsx from 'clsx'
 import {
-  BiRadioCircle,
-  BiRadioCircleMarked,
   BiTrash,
   BiBrush,
   BiPaintRoll,
@@ -70,7 +68,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     if (!props.roomName) return
     if (!props.publisher) return
     const response = await fetch(
-      `https://dev.fearnot.kr/delete/${props.roomName}`,
+      `https://dev-api.obj.kr/delete/${props.roomName}`,
       {
         method: 'DELETE',
       }
@@ -79,7 +77,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
   }, [])
 
   const getUserList = useCallback(async (roomName: string) => {
-    const response = await fetch(`https://dev.fearnot.kr/user-list`, {
+    const response = await fetch(`https://dev-api.obj.kr/user-list`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -92,7 +90,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     return data as ParticipantInfo[]
   }, [])
   const createRoom = useCallback(async (roomName: string) => {
-    const response = await fetch(`https://dev.fearnot.kr/create`, {
+    const response = await fetch(`https://dev-api.obj.kr/create`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -103,8 +101,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     })
     const room = await response.json()
     return room
-  }
-  , [])
+  }, [])
   const generateToken = useCallback(
     async (
       roomName: string,
@@ -114,7 +111,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
         role: RoleType
       }
     ) => {
-      const response = await fetch(`https://dev.fearnot.kr/generateToken`, {
+      const response = await fetch(`https://dev-api.obj.kr/generateToken`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,12 +127,47 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     },
     []
   )
-
+  const startRecording = useCallback(async (roomName: string) => {
+    const recording = await fetch(`https://dev-api.obj.kr/start-recording`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        roomName,
+      }),
+    })
+    const recordingData = (await recording.json()) as {
+      message: string
+      data?: {
+        egressInfo: EgressInfo
+      }
+    }
+    return recordingData.data?.egressInfo ?? null
+  }, [])
+  const stopRecording = useCallback(async (egressId: string) => {
+    const recording = await fetch(`https://dev-api.obj.kr/stop-recording`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        egressId,
+      }),
+    })
+    const recordingData = (await recording.json()) as {
+      message: string
+      data?: {
+        egressInfo: EgressInfo
+      }
+    }
+    return recordingData.data?.egressInfo ?? null
+  }, [])
   useEffect(() => {
     if (!containerRef.current) return
     async function getTokenAndConnect(blackboard: Blackboard) {
       if (!audioRef.current) return
-      if(props.publisher){
+      if (props.publisher) {
         const room = await createRoom(props.roomName)
         console.log('room', room)
       }
@@ -161,7 +193,6 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
       {
         image: props.image,
         isPublisher: props.publisher,
-        bucketUrl: 'https://web-blackboard.s3.ap-northeast-2.amazonaws.com',
         callback: (value) => {
           console.log('callback', value)
           set_controlStacks({
@@ -173,6 +204,10 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
       }
     )
     webBoard.setOnClose(props.onClose)
+    webBoard.liveControl.setRecording({
+      start: startRecording,
+      stop: stopRecording,
+    })
     if (!props.publisher) {
       webBoard.setMode('panning')
       set_currentMode('panning')
@@ -204,49 +239,49 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
                   </span>
                   {user.metadata !== 'presenter' && (
                     <>
-
-<button
-                      onClick={() => {
-                        blackboard?.liveControl.toggleMic(user.identity)
-                        set_userList((prev) => {
-                          if (!prev) return null
-                          return prev.map((prevUser) => {
-                            if (prevUser.identity === user.identity) {
-                              return {
-                                ...prevUser,
-                                access: {
-                                  ...prevUser.access,
-                                  mic: !prevUser.access.mic,
-                                },
+                      <button
+                        onClick={() => {
+                          blackboard?.liveControl.toggleMic(user.identity)
+                          set_userList((prev) => {
+                            if (!prev) return null
+                            return prev.map((prevUser) => {
+                              if (prevUser.identity === user.identity) {
+                                return {
+                                  ...prevUser,
+                                  access: {
+                                    ...prevUser.access,
+                                    mic: !prevUser.access.mic,
+                                  },
+                                }
                               }
-                            }
-                            return prevUser
-                          }) as AccessParticipantType[]
-                        })
-                      }}
-                    >
-                      마이크 토글 {user.access.mic ? 'on' : 'off'}
-                    </button>
-                    <button
-                      onClick={() => {
-                        blackboard?.liveControl.toggleDrawAble(user.identity)
-                        set_userList((prev) => {
-                          if (!prev) return null
-                          return prev.map((prevUser) => {
-                            if (prevUser.identity === user.identity) {
-                              return {
-                                ...prevUser,
-                                access: {
-                                  ...prevUser.access,
-                                  draw: !prevUser.access.draw,
-                                },
+                              return prevUser
+                            }) as AccessParticipantType[]
+                          })
+                        }}
+                      >
+                        마이크 토글 {user.access.mic ? 'on' : 'off'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          blackboard?.liveControl.toggleDrawAble(user.identity)
+                          set_userList((prev) => {
+                            if (!prev) return null
+                            return prev.map((prevUser) => {
+                              if (prevUser.identity === user.identity) {
+                                return {
+                                  ...prevUser,
+                                  access: {
+                                    ...prevUser.access,
+                                    draw: !prevUser.access.draw,
+                                  },
+                                }
                               }
-                            }
-                            return prevUser
-                          }) as AccessParticipantType[]
-                        })
-                      }}>
-                      그리기 토글 {user.access.draw ? 'on' : 'off'}
+                              return prevUser
+                            }) as AccessParticipantType[]
+                          })
+                        }}
+                      >
+                        그리기 토글 {user.access.draw ? 'on' : 'off'}
                       </button>
                     </>
                   )}
@@ -415,7 +450,7 @@ export const Demo = () => {
   const [joinRoom, set_joinRoom] = React.useState<WebBoardProps | null>(null)
   const deleteCurrentRoom = useCallback(async (roomName: string) => {
     if (!roomName) return
-    const response = await fetch(`https://dev.fearnot.kr/delete/${roomName}`, {
+    const response = await fetch(`https://dev-api.obj.kr/delete/${roomName}`, {
       method: 'DELETE',
     })
     await getRoomList()
@@ -423,7 +458,7 @@ export const Demo = () => {
   }, [])
 
   const createRoom = useCallback(async (roomName: string) => {
-    const response = await fetch(`https://dev.fearnot.kr/create`, {
+    const response = await fetch(`https://dev-api.obj.kr/create`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -434,8 +469,7 @@ export const Demo = () => {
     })
     const room = await response.json()
     return room
-  }
-  , [])
+  }, [])
   const generateToken = useCallback(
     async (
       roomName: string,
@@ -445,7 +479,7 @@ export const Demo = () => {
         isPublisher?: boolean
       }
     ) => {
-      const response = await fetch(`https://dev.fearnot.kr/generateToken`, {
+      const response = await fetch(`https://dev-api.obj.kr/generateToken`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -462,7 +496,7 @@ export const Demo = () => {
     []
   )
   const getRoomList = useCallback(async () => {
-    const response = await fetch('https://dev.fearnot.kr/room-list', {
+    const response = await fetch('https://dev-api.obj.kr/room-list', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

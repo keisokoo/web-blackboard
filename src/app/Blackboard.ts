@@ -25,10 +25,13 @@ type BlackboardConfig = {
   width?: number
   height?: number
   image?: string
-  stacks?: StackType[] // 원격으로 퍼블리셔의 방에 들어갈 때, 퍼블리셔가 가지고 있는 스택을 전달받아서 초기화한다.
   callback: (data: WebBlackboardCallBackData) => void
   isPublisher?: boolean
-  bucketUrl?: string
+  bucketUrl?: {
+    bucket: string
+    region: string
+    presigned?: (url: string) => Promise<string>
+  }
 }
 class Blackboard {
   user: BlackboardUserType
@@ -48,14 +51,12 @@ class Blackboard {
   lines: Map<string, WBLine> = new Map(); // event handler 에서 사용되며, userId를 key로 사용한다. remote 라인과 구별하기 위해 Map을 사용.
   background: Konva.Image | null = null;
   liveControl: LiveControl
-  bucketUrl: string = ''
   callback: (data: WebBlackboardCallBackData) => void = () => { };
   onClose: () => void = () => { };
   constructor(user: BlackboardUserType, container: HTMLDivElement, config: BlackboardConfig) {
     this.user = user
     this.container = container;
     if (config) {
-      if(config.bucketUrl) this.bucketUrl = `${config.bucketUrl}`
       this.width = config.width || this.width;
       this.height = config.height || this.height;
       if (config.image) {
@@ -78,7 +79,7 @@ class Blackboard {
     this.stage.add(this.layer);
     this.brush = new BrushDefault();
     this.cursor = new Cursor(this);
-    this.stackManager = new StackManager(this, config?.stacks);
+    this.stackManager = new StackManager(this);
     this.liveControl = new LiveControl(this)
     this.handlers = new Handlers(this);
     this.callback = config?.callback || this.callback
@@ -97,7 +98,7 @@ class Blackboard {
   clear(clearControlStacks: boolean = false) {
     this.layer.destroyChildren();
     this.layer.draw();
-    if(clearControlStacks) this.stackManager.clearControlStacks();
+    if (clearControlStacks) this.stackManager.clearControlStacks();
     this.stackManager.addStack({
       id: `stack-${Date.now()}`,
       action: 'after',
@@ -121,7 +122,7 @@ class Blackboard {
     const imageObj = new Image();
     imageObj.onload = () => {
       // const { width, height } = this.sizeLimit({ width: imageObj.width, height: imageObj.height })
-      const { width , height } = imageObj
+      const { width, height } = imageObj
       if (this.background) {
         this.background.id(image)
         this.background.image(imageObj)
@@ -192,7 +193,7 @@ class Blackboard {
   }
   updated<T extends object>(message: string, extraData?: T) {
     const localUser = this.userList.get(this.user.id)
-    
+
     this.callback({
       message,
       data: {

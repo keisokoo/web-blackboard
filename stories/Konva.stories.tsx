@@ -110,44 +110,10 @@ export const Demo = () => {
     null
   )
   const [recorder, set_recorder] = React.useState<RecordBlackboard | null>(null)
-  const getToken = async () => {
-    const response = await fetch(
-      'https://dev.fearnot.kr/getToken/hi-' + Date.now()
-    )
-    const data = await response.json()
-    console.log('data', data)
-    return data.token
-  }
+
   const lastLine = React.useRef<Konva.Line | null>(null)
   const setLiveDrawing = async () => {
-    const token = await getToken()
     if (!audioRef.current) return
-    // const live = new LiveDrawing(
-    //   audioRef.current,
-    //   'wss://web-blackboard-p9mq0808.livekit.cloud',
-    //   token,
-    //   (data) => {
-    //     if (!methods) return
-    //     const parsed = JSON.parse(data)
-    //     console.log('parsed', parsed)
-    //     if (parsed.type === 'brush-down') {
-    //       lastLine.current = new Konva.Line(parsed.lineConfig)
-    //       methods.layer.add(lastLine.current)
-    //     }
-    //     if (parsed.type === 'brush-move') {
-    //       if (!lastLine.current) return
-    //       let newPoints = lastLine.current.points().concat(parsed.points)
-    //       lastLine.current.points(newPoints)
-    //       methods.layer.batchDraw()
-    //     }
-    //     if (parsed.type === 'brush-up') {
-    //       console.log('end')
-    //     }
-    //   }
-    // )
-    // methods?.setBrushEventCallback(live.room)
-    // set_liveDrawing(live)
-    // live.connect()
   }
   useEffect(() => {
     if (!containerRef.current) return
