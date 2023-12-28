@@ -139,6 +139,8 @@ class StackPlayer {
     this.blackboard.stage.draw();
     this.blackboard.updated('pre-render-played-stacks');
   }
+  drawingStack(stack: StackType, layer: Konva.Layer, useAnimation: boolean = false) {
+  }
   reRenderDrawingLayer(seekTime: number, updateCurrentTime: boolean) {
     if (!this.recordInfo) return;
     if (this.audio && updateCurrentTime) this.audio.currentTime = seekTime;
