@@ -118,9 +118,22 @@ export type EgressInfo = {
   fileResults?: FileInfo[];
 }
 
+export type AudioInfoType = {
+  startTime: number;
+  endTime: number;
+  duration: number;
+  historyStack: StackType[];
+}
 
 export type RecordDataType = {
   filename: string;
+  firstImage?: string;
+  audioInfo: AudioInfoType
+}
+
+export type RecordInfoType = {
+  audioUrl: string;
+  firstImage: string;
   audioInfo: {
     startTime: number;
     endTime: number;

@@ -50,6 +50,7 @@ class Blackboard {
   handlers: Handlers;
   lines: Map<string, WBLine> = new Map(); // event handler 에서 사용되며, userId를 key로 사용한다. remote 라인과 구별하기 위해 Map을 사용.
   background: Konva.Image | null = null;
+  firstBackgroundImage: string = '';
   liveControl: LiveControl
   callback: (data: WebBlackboardCallBackData) => void = () => { };
   onClose: () => void = () => { };
@@ -60,6 +61,7 @@ class Blackboard {
       this.width = config.width || this.width;
       this.height = config.height || this.height;
       if (config.image) {
+        this.firstBackgroundImage = config.image
         this.setBackground(config.image, true)
       }
       this.isPublisher = config.isPublisher ?? true

@@ -6,10 +6,10 @@ type AudioWithStacksType = {
   id?: string
   url: string
   startTime: number // audio의 녹음 시작 시간 Date.now()값
-  historyStacks: StackType[]
   endTime?: number // audio의 녹음 종료 시간 Date.now()값
   duration?: number
   image: string
+  historyStacks: StackType[]
 }
 
 type AudioTimeInfo = {
@@ -30,7 +30,7 @@ class PlayHistoryStack {
 
   private backgroundLayer: Konva.Layer;
   private drawingLayer: Konva.Layer;
-  
+
   audioElement: HTMLAudioElement | null = null;
   backgroundImage: string; // 시작 시점의 이미지
   audioUrl: string;
@@ -49,7 +49,7 @@ class PlayHistoryStack {
   private playingTimeouts: Set<NodeJS.Timeout> = new Set();
   private audioEnded: boolean = false;
   private isSeeking: boolean = false;
-  
+
   duration: number = 0;
   constructor(blackboard: Blackboard, data: AudioWithStacksType) {
     this.backgroundImage = data.image;
@@ -115,7 +115,7 @@ class PlayHistoryStack {
   }
 
   reRenderDrawingLayer(seekTime: number, disableTimeUpdate?: boolean) {
-    if(!this.audioElement) return;
+    if (!this.audioElement) return;
     if (!disableTimeUpdate) this.audioElement.currentTime = seekTime;
     this.clearAllTimeouts();
     this.stopAllAnimations()
@@ -144,7 +144,7 @@ class PlayHistoryStack {
     this.preRenderPlayedStacks();
     this.notPlayingStacks.forEach(stack => {
       const timeKey = Math.floor((stack.timeline.start - this.startTime) / 1000);
-      if(!this.historyMap.has(timeKey)) {
+      if (!this.historyMap.has(timeKey)) {
         this.historyMap.set(timeKey, []);
       }
       this.historyMap.get(timeKey)?.push(stack);
@@ -165,7 +165,7 @@ class PlayHistoryStack {
     }
 
     this.audioElement.onpause = () => {
-      if(!this.audioElement) return;
+      if (!this.audioElement) return;
       this.stopHistoryReplay();
       let timeInfo = this.parseCurrentTime(this.audioElement.currentTime);
       this.cb({
@@ -179,7 +179,7 @@ class PlayHistoryStack {
     }
 
     this.audioElement.onended = () => {
-      if(!this.audioElement) return;
+      if (!this.audioElement) return;
       this.stopHistoryReplay();
       this.playMap = new Map(this.historyMap);
       let timeInfo = this.parseCurrentTime(this.audioElement.currentTime);
@@ -197,7 +197,7 @@ class PlayHistoryStack {
     }
 
     this.audioElement.onseeked = () => {
-      if(!this.audioElement) return;
+      if (!this.audioElement) return;
       if (this.isSeeking) return;
       this.reRenderDrawingLayer(this.audioElement.currentTime, true);
     }

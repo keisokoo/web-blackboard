@@ -1,9 +1,10 @@
-import { StackType } from "../src/app/types";
+import { RecordDataType, StackType } from "../src/app/types";
 
 
 export const sampleAudioUrl = `"https://web-record.s3.ap-northeast-2.amazonaws.com/user-lqoy3cr4gytlznufllq-room-2023-12-28T083052.mp4"`
-export const audioDataSample = {
+export const audioDataSample: RecordDataType = {
     "filename": "user-lqoy3cr4gytlznufllq-room-2023-12-28T083052.mp4",
+    "firstImage": "https://cdn.veritas-a.com/news/photo/202211/436835_345350_5147.jpg",
     "audioInfo": {
         "startTime": 1703752255179073000,
         "endTime": 1703752284764504000,

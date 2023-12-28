@@ -254,6 +254,7 @@ class LiveControl {
     const duration = fileResult?.duration
     return {
       filename: fileResult?.filename ?? '',
+      firstImage: this.blackboard.firstBackgroundImage,
       audioInfo: {
         startTime: startTime ?? 0,
         endTime: endTime ?? 0,
