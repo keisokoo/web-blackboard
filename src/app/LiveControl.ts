@@ -5,8 +5,38 @@ import WBLine from "./WBLine";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
+enum EgressStatus {
+  EGRESS_STARTING = 0,
+  EGRESS_ACTIVE = 1,
+  EGRESS_ENDING = 2,
+  EGRESS_COMPLETE = 3,
+  EGRESS_FAILED = 4,
+  EGRESS_ABORTED = 5,
+  EGRESS_LIMIT_REACHED = 6,
+  UNRECOGNIZED = -1
+}
+interface FileInfo {
+  filename?: string;
+  startedAt?: number;
+  endedAt?: number;
+  duration?: number;
+  size?: number;
+  location?: string;
+}
+type EgressInfo = {
+  egressId?: string;
+  roomId?: string;
+  roomName?: string;
+  status?: EgressStatus;
+  startedAt?: number;
+  endedAt?: number;
+  updatedAt?: number;
+  error?: string;
+  fileResults?: FileInfo[];
+}
 class LiveControl {
+  isRecording: boolean = false;
+  egressInfo: EgressInfo | null = null;
   private wsURL: string = '';
   private wsToken: string = '';
   room: Room;
@@ -138,11 +168,14 @@ class LiveControl {
   setRoomEvent(currentRoom: Room) {
     currentRoom
       .on(RoomEvent.TrackSubscribed, this.handleTrackSubscribed.bind(this))
-    currentRoom.on(RoomEvent.Connected, () => {
+    currentRoom.on(RoomEvent.Connected, async () => {
       console.log('connected to room');
       currentRoom.participants.forEach((participant) => {
         console.log('participant', participant)
       })
+      if(this.blackboard.user.role === 'presenter' && !this.isRecording){
+        this.startRecording()
+      }
     })
     currentRoom.on(RoomEvent.TrackMuted, (track, participant) => {
       this.blackboard.userList.set(participant.identity, {
@@ -191,7 +224,7 @@ class LiveControl {
       const presenter = this.blackboard.userList.get(participant.identity)
       this.removeUser(participant.identity)
       if (presenter?.role === 'presenter') {
-        this.blackboard.onClose()
+        this.disconnect()
       }
     })
   }
@@ -226,13 +259,84 @@ class LiveControl {
     if (this.blackboard.user.role !== 'presenter') localParticipant?.mute()
     this.room.localParticipant.setTrackSubscriptionPermissions(true)
   }
-  reconnect(token: string) {
-    this.wsToken = token;
-    this.room.disconnect();
-    this.connect();
+  async startRecording() {
+    if(!this.room) return
+    if(this.room.isRecording) return
+    if(this.isRecording) return
+    this.isRecording = true
+    const recording = await fetch(`https://dev.fearnot.kr/start-recording`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        roomName: this.room.name,
+      })
+    })
+    const recordingData = await recording.json() as {
+      message: string,
+      data?: {
+        startTime: number,
+        egressInfo: EgressInfo
+      }
+    }
+    this.egressInfo = recordingData.data?.egressInfo ?? null
+    console.log('recordingData', recordingData)
+  }
+  async stopRecording() {
+    console.log('stopRecording', this.room, this.egressInfo, this.isRecording)
+    if(!this.room) return
+    if(!this.room.isRecording) return
+    if(!this.egressInfo) return
+    console.log('called stopRecording')
+    this.isRecording = false
+    const recording = await fetch(`https://dev.fearnot.kr/stop-recording`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        egressId: this.egressInfo.egressId,
+      })
+    })
+    const recordingData = await recording.json() as {
+      message: string,
+      data?: {
+        endTime: number,
+        egressInfo: EgressInfo
+      }
+    }
+    console.log('recordingData', recordingData)
+    this.egressInfo = recordingData.data?.egressInfo ?? null
+    if(this.egressInfo){
+      const stacks = this.blackboard.stackManager.getStacks()
+      const audioData = this.groupingPlayingData(this.egressInfo, stacks)
+      console.log('audioData', audioData)
+    }
+  }
+  groupingPlayingData(egressInfo:EgressInfo, stacks: StackType[]) {
+    const fileResult = egressInfo.fileResults?.[0]
+    const startTime = fileResult?.startedAt ?? egressInfo.startedAt
+    const endTime = fileResult?.endedAt
+    const duration = fileResult?.duration
+
+    return {
+      filename: fileResult?.filename ?? '',
+      url: this.blackboard.bucketUrl + fileResult?.filename,
+      audioInfo: {
+        startTime: startTime ?? 0,
+        endTime: endTime ?? 0,
+        duration: duration ?? 0,
+        historyStack: stacks
+      }
+    }
   }
   async disconnect() {
+    if(this.blackboard.user.role === 'presenter'){
+      await this.stopRecording()
+    }
     await this.room.disconnect();
+    this.blackboard.onClose()
     console.log('disconnected from room');
   }
   addUser(user: BlackboardUserType, participant?: RemoteParticipant | null) {

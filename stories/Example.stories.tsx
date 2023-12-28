@@ -91,6 +91,20 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     const data = await response.json()
     return data as ParticipantInfo[]
   }, [])
+  const createRoom = useCallback(async (roomName: string) => {
+    const response = await fetch(`https://dev.fearnot.kr/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        roomName,
+      }),
+    })
+    const room = await response.json()
+    return room
+  }
+  , [])
   const generateToken = useCallback(
     async (
       roomName: string,
@@ -121,6 +135,10 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     if (!containerRef.current) return
     async function getTokenAndConnect(blackboard: Blackboard) {
       if (!audioRef.current) return
+      if(props.publisher){
+        const room = await createRoom(props.roomName)
+        console.log('room', room)
+      }
       const token = await generateToken(props.roomName, {
         name: props.user.nickname,
         identity: props.user.id,
@@ -143,6 +161,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
       {
         image: props.image,
         isPublisher: props.publisher,
+        bucketUrl: 'https://web-blackboard.s3.ap-northeast-2.amazonaws.com',
         callback: (value) => {
           console.log('callback', value)
           set_controlStacks({
@@ -370,7 +389,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
           <button
             onClick={async () => {
               blackboard?.liveControl.disconnect()
-              await deleteCurrentRoom()
+              props.publisher && (await deleteCurrentRoom())
               props.onClose()
             }}
           >
@@ -402,6 +421,21 @@ export const Demo = () => {
     await getRoomList()
     return response
   }, [])
+
+  const createRoom = useCallback(async (roomName: string) => {
+    const response = await fetch(`https://dev.fearnot.kr/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        roomName,
+      }),
+    })
+    const room = await response.json()
+    return room
+  }
+  , [])
   const generateToken = useCallback(
     async (
       roomName: string,
@@ -482,6 +516,14 @@ export const Demo = () => {
         }}
       >
         토큰 테스트
+      </button>
+      <button
+        onClick={async () => {
+          const room = await createRoom('test')
+          console.log('room', room)
+        }}
+      >
+        방 개설 테스트
       </button>
       <div className="room-list">
         {roomList.map((room, index) => {

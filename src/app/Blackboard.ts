@@ -28,6 +28,7 @@ type BlackboardConfig = {
   stacks?: StackType[] // 원격으로 퍼블리셔의 방에 들어갈 때, 퍼블리셔가 가지고 있는 스택을 전달받아서 초기화한다.
   callback: (data: WebBlackboardCallBackData) => void
   isPublisher?: boolean
+  bucketUrl?: string
 }
 class Blackboard {
   user: BlackboardUserType
@@ -47,12 +48,14 @@ class Blackboard {
   lines: Map<string, WBLine> = new Map(); // event handler 에서 사용되며, userId를 key로 사용한다. remote 라인과 구별하기 위해 Map을 사용.
   background: Konva.Image | null = null;
   liveControl: LiveControl
+  bucketUrl: string = ''
   callback: (data: WebBlackboardCallBackData) => void = () => { };
   onClose: () => void = () => { };
   constructor(user: BlackboardUserType, container: HTMLDivElement, config: BlackboardConfig) {
     this.user = user
     this.container = container;
     if (config) {
+      if(config.bucketUrl) this.bucketUrl = `${config.bucketUrl}`
       this.width = config.width || this.width;
       this.height = config.height || this.height;
       if (config.image) {
