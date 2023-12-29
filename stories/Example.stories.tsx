@@ -87,6 +87,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
       }),
     })
     const data = await response.json()
+    console.log('user-list', data)
     return data as ParticipantInfo[]
   }, [])
   const createRoom = useCallback(async (roomName: string) => {
@@ -161,7 +162,8 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
         egressInfo: EgressInfo
       }
     }
-    return recordingData.data?.egressInfo ?? null
+    const egressInfo = recordingData.data?.egressInfo ?? null
+    return egressInfo
   }, [])
   useEffect(() => {
     if (!containerRef.current) return
@@ -204,10 +206,10 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
       }
     )
     webBoard.setOnClose(props.onClose)
-    webBoard.liveControl.setRecording({
-      start: startRecording,
-      stop: stopRecording,
-    })
+    // webBoard.liveControl.setRecording({
+    //   start: startRecording,
+    //   stop: stopRecording,
+    // })
     if (!props.publisher) {
       webBoard.setMode('panning')
       set_currentMode('panning')

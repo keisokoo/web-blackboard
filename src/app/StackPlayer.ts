@@ -1,6 +1,8 @@
 import Konva from "konva";
 import Blackboard from "./Blackboard";
-import { RecordInfoType, StackType } from "./types";
+import { PaintStackType, RecordInfoType, StackType } from "./types";
+import WBLine from "./WBLine";
+import { LineConfig } from "konva/lib/shapes/Line";
 
 type AudioTimeInfo = {
   currentTime: number;
@@ -15,14 +17,35 @@ type AudioCallbackData = {
     timeInfo: AudioTimeInfo
   }
 }
+
+function debounce(func: (...args: unknown[]) => void, wait: number) {
+  let timeout: NodeJS.Timeout;
+  return function (this: unknown, ...args: unknown[]) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(this, args), wait);
+  };
+}
+
 class StackPlayer {
   blackboard: Blackboard;
-
-  private backgroundLayer: Konva.Layer;
-  private drawingLayer: Konva.Layer;
-
+  currentStagePosition: {
+    before: Konva.Vector2d
+    after: Konva.Vector2d
+  } = {
+      before: {
+        x: 0,
+        y: 0
+      },
+      after: {
+        x: 0,
+        y: 0
+      }
+    }
   recordInfo: RecordInfoType | null = null;
   audio: HTMLAudioElement | null = null;
+  seekerElement: HTMLDivElement | null = null;
+  seekerWrapper: HTMLDivElement | null = null;
+
   timeInfo: AudioTimeInfo = {
     currentTime: 0,
     duration: 0,
@@ -30,6 +53,7 @@ class StackPlayer {
     currentTimeStr: '00:00'
   }
   startTime: number = 0; // audio의 시작 시간 Date.now()값
+  nextTime: number = 0;
   historyStack: StackType[] = [];
   playedStacks: StackType[] = []; // audio의 시작 시간 이전에 실행된 스택들
   notPlayingStacks: StackType[] = []; // audio의 시작 시간 이후에 실행된 스택들
@@ -48,15 +72,11 @@ class StackPlayer {
 
   constructor(blackboard: Blackboard) {
     this.blackboard = blackboard;
-    this.backgroundLayer = new Konva.Layer({
-      id: 'backgroundLayer'
-    });
-    this.drawingLayer = new Konva.Layer({
-      id: 'drawingLayer'
-    });
-    this.blackboard.stage.add(this.backgroundLayer);
-    this.blackboard.stage.add(this.drawingLayer);
-
+    const currentStagePosition = this.blackboard.stage.getPosition();
+    this.currentStagePosition = {
+      before: currentStagePosition,
+      after: currentStagePosition
+    }
   }
   stopAllAnimations() {
     this.animations.forEach(anim => {
@@ -127,10 +147,7 @@ class StackPlayer {
   }
   private preRenderPlayedStacks() {
     if (!this.recordInfo) return;
-    this.blackboard.layer.hide();
-    this.blackboard.backgroundLayer.hide();
-    this.backgroundLayer.destroyChildren();
-    this.drawingLayer.destroyChildren();
+    this.blackboard.backgroundLayer.destroyChildren();
     this.blackboard.stage.position({ x: 0, y: 0 });
     this.blackboard.setBackground(this.recordInfo.firstImage, true);
     this.playedStacks.forEach(stack => {
@@ -139,15 +156,126 @@ class StackPlayer {
     this.blackboard.stage.draw();
     this.blackboard.updated('pre-render-played-stacks');
   }
-  drawingStack(stack: StackType, layer: Konva.Layer, useAnimation: boolean = false) {
+  disposeActionDirection<T>(action: 'before' | 'after', data: {
+    before: T,
+    after: T
+  }) {
+    if (action === 'before') return {
+      before: data.after,
+      after: data.before
+    };
+    return data
   }
-  reRenderDrawingLayer(seekTime: number, updateCurrentTime: boolean) {
+
+  animateStageMovement(stage: Konva.Stage, stagePosition: {
+    before: { x: number, y: number },
+    after: { x: number, y: number }
+  }, duration: number) {
+    let startX = stagePosition.before.x;
+    let startY = stagePosition.before.y;
+    let endX = stagePosition.after.x;
+    let endY = stagePosition.after.y;
+    const animation = new Konva.Animation((frame) => {
+      if (!frame) return;
+      let time = frame.time, // 애니메이션 진행 시간 (밀리초)
+        timeFraction = time / duration; // 진행 비율 (0 ~ 1)
+
+      if (timeFraction > 1) timeFraction = 1;
+
+      let newX = startX + (endX - startX) * timeFraction; // 새 X 위치
+      let newY = startY + (endY - startY) * timeFraction; // 새 Y 위치
+
+      stage.position({ x: newX, y: newY });
+
+      if (timeFraction === 1) {
+        animation.stop(); // 애니메이션 종료
+        this.animations.delete(animation)
+      }
+    }, stage);
+    this.animations.add(animation);
+    animation.start(); // 애니메이션 시작
+  }
+
+  animateLineWithDuration(duration: number, layer: Konva.Layer, paintStack: PaintStackType, endCallback?: (newLine: Konva.Line) => void) {
+    if (!paintStack) return;
+    const points = paintStack.paint.points
+    const lineOptions = paintStack.paint.lineConfig;
+    let startTime: number;
+    if (!points || points.length < 2) return;
+
+    const wb = new WBLine({
+      userType: 'local',
+      userId: this.blackboard.user.id,
+      lineConfig: {
+        ...lineOptions
+      },
+      deleteAble: true
+    })
+
+    const newLine = wb.line;
+
+    this.blackboard.handlers.bindHitLineEvent(wb);
+    layer.add(newLine);
+    console.log('drawing!', points)
+    const animation = new Konva.Animation((frame) => {
+      if (!frame) return;
+      if (!startTime) startTime = frame.time;
+      const timeElapsed = frame.time - startTime;
+      const progress = timeElapsed / duration;
+
+      const currentPointIndex = Math.min(
+        Math.floor(progress * points.length / 2) * 2,
+        points.length
+      );
+
+      newLine.points(points.slice(0, currentPointIndex) as number[]);
+
+      if (timeElapsed >= duration) {
+        animation.stop();
+        this.animations.delete(animation);
+        endCallback && endCallback(newLine);
+      }
+    }, layer);
+    this.animations.add(animation);
+    animation.start();
+  }
+
+  drawingStack(stack: StackType, useAnimation: boolean = false) {
+    if (!useAnimation || stack.action === 'remove') {
+      this.blackboard.stackManager.runStack(stack);
+      return
+    }
+    const isImageStack = this.blackboard.stackManager.isImageStackType(stack);
+    const isPanningStack = this.blackboard.stackManager.isPanningStackType(stack);
+    const isClearStack = this.blackboard.stackManager.isClearStackType(stack);
+    const isPaintStack = this.blackboard.stackManager.isPaintStackType(stack);
+
+    if (isImageStack) {
+      this.blackboard.stackManager.runStack(stack);
+    }
+    if (isPanningStack) {
+      const position = this.disposeActionDirection(stack.action, {
+        before: stack.panning.before,
+        after: stack.panning.after
+      })
+      this.animateStageMovement(this.blackboard.stage, position, stack.timeline.duration);
+    }
+    if (isClearStack) {
+      this.blackboard.stackManager.runStack(stack);
+    }
+    if (isPaintStack) {
+      if (stack.action === 'add') {
+        this.animateLineWithDuration(stack.timeline.duration, this.blackboard.layer, stack);
+      }
+    }
+  }
+  reRenderDrawingLayer(seekTime: number, updateCurrentTime: boolean = true) {
     if (!this.recordInfo) return;
     if (this.audio && updateCurrentTime) this.audio.currentTime = seekTime;
     this.clearAllTimeouts();
     this.stopAllAnimations()
     this.blackboard.stage.position({ x: 0, y: 0 });
-    this.drawingLayer.destroyChildren();
+    this.blackboard.layer.destroyChildren();
 
     this.playMap = new Map(this.historyMap);
     const result: StackType[][] = [];
@@ -158,7 +286,7 @@ class StackPlayer {
       }
     }
     result.flat().forEach((stack) => {
-      // this.drawingStack(stack, this.drawingLayer, false);
+      this.drawingStack(stack, false);
     })
     this.blackboard.updated('reRenderBeforeHistoryStack');
 
@@ -168,6 +296,7 @@ class StackPlayer {
     this.audio = audioElement;
     this.audio.src = this.recordInfo.audioUrl;
     this.audio.preload = "metadata";
+    this.audio.style.display = 'none';
     this.startTime = this.recordInfo.audioInfo.startTime;
     this.historyStack = this.recordInfo.audioInfo.historyStack;
     this.setStacksBySeekTime(this.historyStack, this.startTime);
@@ -185,6 +314,7 @@ class StackPlayer {
     this.audio.onloadedmetadata = (e) => {
       const currentAudio = e.target as HTMLAudioElement;
       const duration = isFinite(currentAudio.duration) ? currentAudio.duration : recordInfo.audioInfo.duration;
+      console.log('current duration', duration)
       this.timeInfo = {
         currentTime: currentAudio.currentTime,
         duration,
@@ -210,9 +340,122 @@ class StackPlayer {
     this.audio.onseeked = (e) => {
       const currentAudio = e.target as HTMLAudioElement;
       if (this.isSeeking) return;
-      this.reRenderDrawingLayer(currentAudio.currentTime, true);
+      this.reRenderDrawingLayer(currentAudio.currentTime, false);
+    }
+
+    this.audio.ontimeupdate = (e) => {
+      if (this.isSeeking) {
+        return
+      };
+      const currentAudio = e.target as HTMLAudioElement;
+      const timeInfo = this.getTimeInfo(currentAudio.currentTime)
+      const currentTime = Math.floor(currentAudio.currentTime);
+      if (currentTime === 0 && this.audioEnded) {
+        this.audioEnded = false;
+        this.blackboard.layer.destroyChildren();
+      }
+      if (this.playMap.has(currentTime)) {
+        const historyStack = this.playMap.get(currentTime);
+        this.playMap.delete(currentTime);
+        if (!historyStack) return;
+        if (historyStack.length === 0) return;
+        historyStack.forEach((stack) => {
+          const delay = stack.timeline.start - this.startTime - currentTime * 1000;
+          const playTimeout = setTimeout(() => {
+            this.drawingStack(stack, true);
+          }, delay)
+          this.playingTimeouts.add(playTimeout);
+        })
+        this.updated('audio-time-update', currentAudio.currentTime);
+      }
+      this.updateSeeker(timeInfo.percent)
     }
   }
 
+  async toggleAudio() {
+    if (!this.recordInfo) return;
+    if (!this.audio) return;
+    if (this.audio.paused) {
+      await this.audio.play();
+    } else {
+      this.audio.pause();
+    }
+    return !this.audio.paused;
+  }
+  debouncedFunction = debounce(() => {
+    console.log('debouncedFunction', this.nextTime)
+    if (!this.isSeeking) return;
+    this.isSeeking = false;
+    this.updateSeeker(this.parseTimeToPercent(this.nextTime, this.timeInfo.duration))
+    this.reRenderDrawingLayer(this.nextTime);
+  }, 250);
+
+  updateSeeker(percent: number) {
+    if (!this.seekerElement) return;
+    if (!this.seekerWrapper) return;
+    this.seekerElement.style.width = percent + '%'
+  }
+  onSeekerDown() {
+    if (!this.recordInfo) return;
+    if (!this.audio) return;
+    if (!this.seekerElement) return;
+    this.isSeeking = true;
+    this.movedSeeker = false;
+    // if (!this.audio.paused) {
+    //   this.audio.pause();
+    // }
+  }
+  onSeekerMove(e: PointerEvent) {
+    if (!this.isSeeking) return;
+    if (!this.audio) return;
+    if (!this.seekerWrapper) return;
+    if (!this.seekerElement) return;
+    this.movedSeeker = true;
+
+    const XPosition = e.pageX - this.seekerWrapper.offsetLeft;
+    const percent = (XPosition / this.seekerWrapper.offsetWidth) * 100;
+    this.seekerElement.style.width = percent + '%'
+    const currentTime = this.timeInfo.duration * percent / 100;
+    this.nextTime = currentTime;
+    console.log('currentTime', currentTime)
+    // run methods with debounce
+
+    this.debouncedFunction(this);
+  }
+  onSeekerUp(e: PointerEvent) {
+    console.log('onSeekerUp',)
+    if (!this.audio) return;
+    if (!this.seekerWrapper) return;
+    if (!this.seekerElement) return;
+    if (!this.movedSeeker) {
+      this.movedSeeker = false;
+      const XPosition = e.pageX - this.seekerWrapper.offsetLeft;
+      const percent = (XPosition / this.seekerWrapper.offsetWidth) * 100;
+      this.seekerElement.style.width = percent + '%'
+      const currentTime = this.timeInfo.duration * percent / 100;
+      this.nextTime = currentTime;
+      this.reRenderDrawingLayer(this.nextTime);
+      console.log('currentTime', currentTime)
+    }
+    // if (this.audio.paused) {
+    //   this.audio.play();
+    // }
+    this.isSeeking = false;
+  }
+  setSeeker(seekerElement: HTMLDivElement, seekerWrapper: HTMLDivElement) {
+    this.seekerElement = seekerElement;
+    this.seekerWrapper = seekerWrapper
+    this.seekerWrapper.onpointerdown = this.onSeekerDown.bind(this);
+    this.seekerWrapper.onpointermove = this.onSeekerMove.bind(this);
+    this.seekerWrapper.onpointerup = this.onSeekerUp.bind(this);
+  }
+  destroySeeker() {
+    if (!this.seekerWrapper) return;
+    this.seekerWrapper.onpointerdown = null;
+    this.seekerWrapper.onpointermove = null;
+    this.seekerWrapper.onpointerup = null;
+    this.seekerWrapper = null;
+    this.seekerElement = null;
+  }
 }
 export default StackPlayer;

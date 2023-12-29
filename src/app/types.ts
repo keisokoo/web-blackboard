@@ -127,7 +127,7 @@ export type AudioInfoType = {
 
 export type RecordDataType = {
   filename: string;
-  firstImage?: string;
+  firstImage: string;
   audioInfo: AudioInfoType
 }
 

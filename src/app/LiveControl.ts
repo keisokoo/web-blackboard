@@ -2,6 +2,8 @@ import { Room, RemoteParticipant, LocalTrackPublication, createLocalAudioTrack, 
 import Blackboard from "./Blackboard";
 import { UserType, AccessType, BlackboardUserType, LiveControlUserType, StackType, RoleType, RecordDataType, EgressInfo } from "./types";
 import WBLine from "./WBLine";
+import { parseNanoToMilliseconds } from "../helper/timestamp";
+import generateHash from "../helper/generateHash";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -13,8 +15,6 @@ class LiveControl {
   room: Room;
   publishTrack: LocalTrackPublication | null = null;
   audioElement: HTMLAudioElement | null = null;
-
-  recordData: RecordDataType | null = null;
 
   blackboard: Blackboard;
 
@@ -108,13 +108,36 @@ class LiveControl {
             lineConfig: decoded.lineConfig,
             deleteAble: false
           })
+          wb.setTimestamp({ start: Date.now() })
           this.blackboard.setNewLine(wb);
           this.blackboard.handlers.bindHitLineEvent(wb);
-        } else if (decoded.type && decoded.type === 'remote-move') {
+        } else if (decoded.type === 'remote-move') {
           const wb = this.blackboard.getLastLine(decoded.userId);
           if (!wb) return
           const newPoints = wb.line.points().concat(decoded.nextPoints);
           wb.line.points(newPoints);
+          this.blackboard.layer.batchDraw();
+        } else if (decoded.type === 'remote-up') {
+          const wb = this.blackboard.getLastLine(decoded.userId);
+          console.log('wb', wb)
+          if (!wb) return
+          wb.setTimestamp({ end: Date.now() })
+          this.blackboard.stackManager.addStack({
+            id: `stack-${generateHash()}`,
+            action: 'add',
+            timeline: {
+              start: wb.timestamp.start,
+              end: wb.timestamp.end,
+              duration: (wb.timestamp.end - wb.timestamp.start) / 1000
+            },
+            paint: {
+              id: wb.line.id(),
+              type: wb.type,
+              lineConfig: wb.config.lineConfig,
+              points: wb.line.points()
+            }
+          }, true, false)
+          console.log(this.blackboard.stackManager.getStacks())
           this.blackboard.layer.batchDraw();
         }
       } else {
@@ -249,26 +272,29 @@ class LiveControl {
   groupingPlayingData(egressInfo: EgressInfo | null, stacks: StackType[]): RecordDataType | null {
     if (!egressInfo) return null
     const fileResult = egressInfo.fileResults?.[0]
-    const startTime = fileResult?.startedAt ?? egressInfo.startedAt
-    const endTime = fileResult?.endedAt
-    const duration = fileResult?.duration
-    return {
+    const startTime = parseNanoToMilliseconds(fileResult?.startedAt ?? egressInfo.startedAt ?? 0) // milliseconds
+    const endTime = parseNanoToMilliseconds(fileResult?.endedAt ?? egressInfo.endedAt ?? 0) // milliseconds
+    const duration = parseNanoToMilliseconds(fileResult?.duration ?? 0) / 1000 // seconds
+    const result = {
       filename: fileResult?.filename ?? '',
       firstImage: this.blackboard.firstBackgroundImage,
       audioInfo: {
-        startTime: startTime ?? 0,
-        endTime: endTime ?? 0,
-        duration: duration ?? 0,
+        startTime: startTime,
+        endTime: endTime,
+        duration: duration,
         historyStack: stacks
       }
     }
+    return result
   }
   async disconnect() {
     if (this.blackboard.user.role === 'presenter') {
       if (this.recording?.stop) {
         const recordingData = await this.recording.stop(this.egressInfo?.egressId ?? '')
         this.egressInfo = recordingData
-        this.recordData = this.groupingPlayingData(this.egressInfo, this.blackboard.stackManager.getStacks())
+        this.blackboard.recordData = this.groupingPlayingData(this.egressInfo, this.blackboard.stackManager.getStacks())
+        console.log('this.blackboard.recordData', this.blackboard.recordData)
+        this.blackboard.updated('record done')
       }
     }
     await this.room.disconnect();

@@ -59,7 +59,7 @@ class RecordBlackboard {
       id: 'backgroundLayer'
     });
     this.drawingLayer = new Konva.Layer({
-      id: 'drawingLayer'
+
     });
     this.webBlackboard.stage.add(this.backgroundLayer);
     this.webBlackboard.stage.add(this.drawingLayer);
@@ -103,6 +103,7 @@ class RecordBlackboard {
     this.isSeeking = false;
     this.reRenderDrawingLayer(this.nextTime);
   }, 250);
+
   updateSeeker(percent: number) {
     if (!this.seekerElement) return;
     if (!this.seekerWrapper) return;

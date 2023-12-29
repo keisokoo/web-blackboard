@@ -1,5 +1,5 @@
 import Konva from "konva";
-import { BlackboardUserType, LiveControlUserType, ModeType, RoleType, StackType } from "./types";
+import { BlackboardUserType, LiveControlUserType, ModeType, RecordDataType, RoleType, StackType } from "./types";
 import BrushDefault from "./BrushDefault";
 import Cursor from "./Cursor";
 import StackManager from "./StackManager";
@@ -7,6 +7,7 @@ import WBLine from "./WBLine";
 import { isPaintType } from "./types";
 import Handlers from "./Handlers";
 import LiveControl from "./LiveControl";
+import StackPlayer from "./StackPlayer";
 
 type WebBlackboardCallBackData = {
   message: string
@@ -17,7 +18,8 @@ type WebBlackboardCallBackData = {
     redoStack: StackType[]
     stacks: StackType[]
     userList: Map<string, LiveControlUserType>
-    access?: LiveControlUserType['access']
+    access?: LiveControlUserType['access'],
+    recordData?: RecordDataType | null
   }
 }
 
@@ -34,6 +36,7 @@ type BlackboardConfig = {
   }
 }
 class Blackboard {
+  recordData: RecordDataType | null = null
   user: BlackboardUserType
   userList: Map<string, LiveControlUserType> = new Map();
   isPublisher: boolean = true // false면 subscriber. TODO: subscriber는 최초에 드로잉 불가능하게 해야함. 현재는 로직으로만 처리
@@ -54,6 +57,7 @@ class Blackboard {
   liveControl: LiveControl
   callback: (data: WebBlackboardCallBackData) => void = () => { };
   onClose: () => void = () => { };
+  stackPlayer: StackPlayer;
   constructor(user: BlackboardUserType, container: HTMLDivElement, config: BlackboardConfig) {
     this.user = user
     this.container = container;
@@ -93,6 +97,8 @@ class Blackboard {
       this.stage.draw();
     })
     this.setStageHandler(this.handlers);
+    if (this.user.role !== 'presenter') this.setMode('panning')
+    this.stackPlayer = new StackPlayer(this)
   }
   setOnClose(onClose: () => void) {
     this.onClose = onClose
@@ -157,7 +163,7 @@ class Blackboard {
           }
         })
       }
-      this.updated('background');
+      this.updated('set background');
     }
     imageObj.src = image;
   }
@@ -206,6 +212,7 @@ class Blackboard {
         stacks: this.stackManager.getStacks(),
         userList: this.userList,
         access: localUser?.access,
+        recordData: this.recordData,
         ...extraData
       }
     })

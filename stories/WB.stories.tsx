@@ -20,11 +20,69 @@ import {
 import './canvas.css'
 import Konva from 'konva'
 import generateHash from '../src/helper/generateHash'
-import { ModeType, StackType } from '../src/app/types'
-import { stackSamples } from './samples'
+import { ModeType, RecordInfoType, StackType } from '../src/app/types'
+import { audioDataSample, sampleAudioUrl, stackSamples } from './samples'
+import StackPlayer from '../src/app/StackPlayer'
 
 const randomUserId = 'local-' + generateHash()
 
+const SeekerBar = ({ stackPlayer }: { stackPlayer: StackPlayer }) => {
+  const seekerRef = React.useRef<HTMLDivElement>(null)
+  const controlRef = React.useRef<HTMLDivElement>(null)
+  const seekRef = React.useRef<HTMLDivElement>(null)
+  const bufferRef = React.useRef<HTMLDivElement>(null)
+  const [onSeek, set_onSeek] = React.useState<boolean>(false)
+  const [isPlaying, set_isPlaying] = React.useState<boolean>(false)
+  useEffect(() => {
+    if (!stackPlayer) return
+    // stackPlayer.setCallback(({ data, message }) => {
+    //   set_isPlaying(data.isPlaying)
+    // })
+    stackPlayer.setAudioUpdated((timeInfo) => {})
+    if (!seekerRef.current) return
+    if (!seekRef.current) return
+
+    stackPlayer.setSeeker(seekRef.current, seekerRef.current)
+    return () => {
+      stackPlayer.destroySeeker()
+    }
+  }, [stackPlayer])
+  return (
+    <div className="audio-controller-wrap">
+      <div className="controller-box">
+        <div className="bottom-box">
+          <div className="btn-box">
+            <button
+              className="btn"
+              onClick={async () => {
+                set_isPlaying(!!stackPlayer?.toggleAudio())
+              }}
+            >
+              {isPlaying ? 'pause' : 'play'}
+            </button>
+          </div>
+          <div className="gap" />
+          <div className="timeline">
+            <div className="wrap" ref={seekerRef}>
+              <div className="seeker">
+                <div
+                  ref={controlRef}
+                  className={clsx({ hide: !onSeek }, 'control-bar')}
+                >
+                  <div className="control-bar-point" />
+                </div>
+                <div ref={seekRef} className={clsx({ hide: onSeek }, 'seek')}>
+                  <div className="seek-point" />
+                </div>
+                <div className="buffered" ref={bufferRef} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 export const Demo = () => {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const audioRef = React.useRef<HTMLAudioElement>(null)
@@ -59,6 +117,13 @@ export const Demo = () => {
       }
     )
     set_blackboard(webBoard)
+    if (audioRef.current) {
+      const recordData: RecordInfoType = {
+        ...audioDataSample,
+        audioUrl: sampleAudioUrl,
+      }
+      webBoard.stackPlayer.setRecord(audioRef.current, recordData)
+    }
   }, [])
   return (
     <div className="canvas-wrap">
@@ -77,7 +142,10 @@ export const Demo = () => {
           </button>
         </div>
       </div>
-      <audio ref={audioRef} id={'wb-audio'} controls></audio>
+      {blackboard?.stackPlayer && (
+        <SeekerBar stackPlayer={blackboard?.stackPlayer} />
+      )}
+      <audio ref={audioRef}></audio>
       <div ref={containerRef}></div>
     </div>
   )
