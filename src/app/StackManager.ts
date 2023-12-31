@@ -174,6 +174,9 @@ class StackManager {
   isClearStackType(stack: StackType): stack is ClearStackType {
     return (stack as ClearStackType).clearIndex !== undefined;
   }
+  isStackType(stack: StackType): stack is StackType {
+    return this.isPaintStackType(stack) || this.isPanningStackType(stack) || this.isImageStackType(stack) || this.isClearStackType(stack);
+  }
   getStackType(stack: StackType): { type: StackTypeString, stack: StackType } {
     if (this.isPaintStackType(stack)) {
       return { type: 'paint', stack };
