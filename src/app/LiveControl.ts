@@ -40,6 +40,7 @@ class LiveControl {
   notify: (data: NotifyData) => void = () => { };
 
   timerCallback: (data: { limitTime: number, recordLimit: number }) => void = () => { };
+  timerEndCallback: null | ((liveControl: LiveControl) => void) = null
 
   constructor(blackboard: Blackboard) {
     this.blackboard = blackboard;
@@ -60,9 +61,10 @@ class LiveControl {
     this.setRoomEvent(this.room)
   }
 
-  setTimerCallback(timerCallback: (data: { limitTime: number, recordLimit: number }) => void) {
+  setTimerCallback(timerCallback: (data: { limitTime: number, recordLimit: number }) => void, timerEndCallback?: (liveControl: LiveControl) => void) {
     if (this.limitTimeout) clearTimeout(this.limitTimeout)
     this.timerCallback = timerCallback
+    if (timerEndCallback) this.timerEndCallback = timerEndCallback
   }
 
   clearLimitTime() {
@@ -77,7 +79,11 @@ class LiveControl {
   checkLimitTime() {
     this.limitTimeout = setTimeout(() => {
       if (this.limitTime >= this.recordLimit) {
-        this.disconnect()
+        if (this.timerEndCallback) {
+          this.timerEndCallback(this)
+        } else {
+          this.disconnect()
+        }
         clearTimeout(this.limitTimeout!)
         return
       }

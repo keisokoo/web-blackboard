@@ -27,11 +27,12 @@ declare class LiveControl {
         limitTime: number;
         recordLimit: number;
     }) => void;
+    timerEndCallback: null | ((liveControl: LiveControl) => void);
     constructor(blackboard: Blackboard);
     setTimerCallback(timerCallback: (data: {
         limitTime: number;
         recordLimit: number;
-    }) => void): void;
+    }) => void, timerEndCallback?: (liveControl: LiveControl) => void): void;
     clearLimitTime(): void;
     pauseLimitTime(): void;
     checkLimitTime(): void;
