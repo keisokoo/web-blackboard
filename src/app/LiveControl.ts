@@ -1,9 +1,9 @@
-import { Room, RemoteParticipant, LocalTrackPublication, createLocalAudioTrack, Participant, ParticipantEvent, RemoteTrack, RemoteTrackPublication, RoomEvent, Track, DataPacket_Kind } from "livekit-client";
-import Blackboard from "./Blackboard";
-import { UserType, AccessType, BlackboardUserType, LiveControlUserType, StackType, RoleType, RecordDataType, EgressInfo, ChatMessage } from "./types";
-import WBLine from "./WBLine";
-import { parseNanoToMilliseconds } from "../helper/timestamp";
+import { DataPacket_Kind, LocalTrackPublication, ParticipantEvent, RemoteParticipant, RemoteTrack, RemoteTrackPublication, Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
 import generateHash from "../helper/generateHash";
+import { parseNanoToMilliseconds } from "../helper/timestamp";
+import Blackboard from "./Blackboard";
+import WBLine from "./WBLine";
+import { BlackboardUserType, ChatMessage, EgressInfo, RecordDataType, RoleType, StackType } from "./types";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -81,6 +81,7 @@ class LiveControl {
         return
       }
       this.limitTime += 1000;
+      this.timerCallback({ limitTime: this.limitTime, recordLimit: this.recordLimit })
       this.checkLimitTime()
     }, 1000)
   }

@@ -1,7 +1,7 @@
 /// <reference types="node" />
-import { Room, RemoteParticipant, LocalTrackPublication, RemoteTrack, RemoteTrackPublication } from "livekit-client";
+import { LocalTrackPublication, RemoteParticipant, RemoteTrack, RemoteTrackPublication, Room } from "livekit-client";
 import Blackboard from "./Blackboard";
-import { BlackboardUserType, LiveControlUserType, StackType, RecordDataType, EgressInfo, ChatMessage } from "./types";
+import { BlackboardUserType, ChatMessage, EgressInfo, RecordDataType, StackType } from "./types";
 type NotifyData = {
     type: 'request-draw' | 'request-mic' | 'egress_started' | 'init' | 'mute' | 'unmute' | 'draw-on' | 'draw-off';
     target?: string;
@@ -64,7 +64,7 @@ declare class LiveControl {
     unmuteTracks(userId: string, sid: string): void;
     toggleMic(userId: string, sid: string): void;
     removeUser(userId: string): void;
-    getCurrentUserBy(userId: string): LiveControlUserType | undefined;
+    getCurrentUserBy(userId: string): import("./types").LiveControlUserType | undefined;
     getRoomParticipants(): Map<string, RemoteParticipant>;
 }
 export default LiveControl;
