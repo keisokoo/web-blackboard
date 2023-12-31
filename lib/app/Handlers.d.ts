@@ -3,6 +3,7 @@ import Blackboard from "./Blackboard";
 import WBLine from "./WBLine";
 import { ModeType, PaintType } from "./types";
 declare class Handlers {
+    activePointerId: number | null;
     blackboard: Blackboard;
     isPaint: boolean;
     isPanning: boolean;

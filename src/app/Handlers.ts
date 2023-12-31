@@ -5,6 +5,7 @@ import generateHash from "../helper/generateHash";
 import { ModeType, PaintType, isPaintType } from "./types";
 
 class Handlers {
+  activePointerId: number | null = null;
   blackboard: Blackboard;
   isPaint: boolean = false;
   isPanning: boolean = false;
@@ -265,16 +266,21 @@ class Handlers {
   }
   stageDown = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (!this.blackboard) return
+    if (this.activePointerId !== null && this.activePointerId !== e.evt.pointerId) return
+    this.activePointerId = e.evt.pointerId;
     this.downEventByMode(this.blackboard.mode);
   }
   stageMove = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (!this.blackboard) return
+    if (this.activePointerId !== null && this.activePointerId !== e.evt.pointerId) return
     const isDragging = this.blackboard.mode === 'panning'
     if (!isDragging) this.drawCursor(e.evt.offsetX, e.evt.offsetY);
     this.moveEventByMode(this.blackboard.mode, e);
   }
   stageUp = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (!this.blackboard) return
+    if (this.activePointerId !== null && this.activePointerId !== e.evt.pointerId) return
+    this.activePointerId = null;
     this.isPaint = false;
     this.isDeleteMode = false;
     this.upEventByMode(this.blackboard.mode);

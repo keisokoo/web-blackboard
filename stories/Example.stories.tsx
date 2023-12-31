@@ -217,10 +217,11 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
       }
     )
     webBoard.setOnClose(props.onClose)
-    webBoard.liveControl.setRecording({
-      start: startRecording,
-      stop: stopRecording,
-    })
+    // webBoard.liveControl.setRecording({
+    //   start: startRecording,
+    //   stop: stopRecording,
+    // })
+    set_pending(false)
     webBoard.setChatCallback((data) => {
       console.log('chat', data.nickname, data.message)
     })
@@ -229,7 +230,7 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
       set_currentMode('panning')
     }
     set_blackboard(webBoard)
-    getTokenAndConnect(webBoard)
+    // getTokenAndConnect(webBoard)
     return () => {
       blackboard?.liveControl.disconnect()
     }
