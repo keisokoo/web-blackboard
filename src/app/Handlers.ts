@@ -3,7 +3,6 @@ import Blackboard from "./Blackboard";
 import WBLine from "./WBLine";
 import generateHash from "../helper/generateHash";
 import { ModeType, PaintType, isPaintType } from "./types";
-import { StackType } from "../types";
 
 class Handlers {
   blackboard: Blackboard;
