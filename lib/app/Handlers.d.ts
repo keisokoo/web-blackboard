@@ -1,0 +1,38 @@
+import Konva from "konva";
+import Blackboard from "./Blackboard";
+import WBLine from "./WBLine";
+import { ModeType, PaintType } from "./types";
+declare class Handlers {
+    blackboard: Blackboard;
+    isPaint: boolean;
+    isPanning: boolean;
+    isDeleteMode: boolean;
+    startTime: number;
+    endTime: number;
+    beforeStagePosition: Konva.Vector2d;
+    afterStagePosition: Konva.Vector2d;
+    constructor(blackboard: Blackboard);
+    private deleteLine;
+    private drawCursor;
+    private getDrawable;
+    bindHitLineEvent(wb: WBLine): void;
+    remoteDown(wb: WBLine): void;
+    addDown(mode: PaintType): void;
+    draggingDown(mode: ModeType): void;
+    deleteModeDown(mode: ModeType): void;
+    downEventByMode(mode: ModeType): void;
+    deleteMove(mode: ModeType): void;
+    draggingMove(mode: ModeType): void;
+    remoteMove(userId: string, nextPoints: number[]): void;
+    addMove(mode: PaintType, e: Konva.KonvaEventObject<PointerEvent>): void;
+    moveEventByMode(mode: ModeType, e: Konva.KonvaEventObject<PointerEvent>): void;
+    remoteUp(wb: WBLine): void;
+    addUp(mode: PaintType): void;
+    draggingUp(mode: ModeType): void;
+    deleteModeUp(mode: ModeType): void;
+    upEventByMode(mode: ModeType): void;
+    stageDown: (e: Konva.KonvaEventObject<PointerEvent>) => void;
+    stageMove: (e: Konva.KonvaEventObject<PointerEvent>) => void;
+    stageUp: (e: Konva.KonvaEventObject<PointerEvent>) => void;
+}
+export default Handlers;

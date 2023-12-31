@@ -2,23 +2,8 @@ import React, { useEffect } from 'react'
 import Blackboard from '../src/app/Blackboard'
 import { Meta } from '@storybook/react'
 import clsx from 'clsx'
-import {
-  BiBrush,
-  BiEraser,
-  BiImage,
-  BiImageAdd,
-  BiPaintRoll,
-  BiRadioCircle,
-  BiRadioCircleMarked,
-  BiRedo,
-  BiSolidEraser,
-  BiSolidHand,
-  BiTime,
-  BiTrash,
-  BiUndo,
-} from 'react-icons/bi'
+import { BiSolidHand } from 'react-icons/bi'
 import './canvas.css'
-import Konva from 'konva'
 import generateHash from '../src/helper/generateHash'
 import { ModeType, RecordInfoType, StackType } from '../src/app/types'
 import { audioDataSample, sampleAudioUrl } from './samples'
