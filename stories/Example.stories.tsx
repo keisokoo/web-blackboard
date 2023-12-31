@@ -17,6 +17,7 @@ import {
   BiRedo,
   BiXCircle,
   BiUser,
+  BiAlarm,
 } from 'react-icons/bi'
 import { ParticipantInfo } from 'livekit-client/src/proto/livekit_models_pb'
 
@@ -46,6 +47,9 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
   const [blackboard, set_blackboard] = React.useState<Blackboard | null>(null)
   const [currentMode, set_currentMode] = React.useState<ModeType>(
     props.publisher ? 'panning' : 'pen'
+  )
+  const [pending, set_pending] = React.useState<boolean>(
+    props.publisher ? true : false
   )
   const [controlStacks, set_controlStacks] = React.useState<{
     undoStack: StackType[]
@@ -146,25 +150,29 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     }
     return recordingData.data?.egressInfo ?? null
   }, [])
-  const stopRecording = useCallback(async (egressId: string) => {
-    const recording = await fetch(`https://dev-api.obj.kr/stop-recording`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        egressId,
-      }),
-    })
-    const recordingData = (await recording.json()) as {
-      message: string
-      data?: {
-        egressInfo: EgressInfo
+  const stopRecording = useCallback(
+    async (egressId: string, isCancel: boolean = false) => {
+      const recording = await fetch(`https://dev-api.obj.kr/stop-recording`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          egressId,
+          isCancel,
+        }),
+      })
+      const recordingData = (await recording.json()) as {
+        message: string
+        data?: {
+          egressInfo: EgressInfo
+        }
       }
-    }
-    const egressInfo = recordingData.data?.egressInfo ?? null
-    return egressInfo
-  }, [])
+      const egressInfo = recordingData.data?.egressInfo ?? null
+      return egressInfo
+    },
+    []
+  )
   useEffect(() => {
     if (!containerRef.current) return
     async function getTokenAndConnect(blackboard: Blackboard) {
@@ -202,14 +210,20 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
             redoStack: value?.data?.redoStack ?? [],
           })
           value.data?.access && set_access(value.data.access)
+          if (value.message === 'record start') {
+            set_pending(false)
+          }
         },
       }
     )
     webBoard.setOnClose(props.onClose)
-    // webBoard.liveControl.setRecording({
-    //   start: startRecording,
-    //   stop: stopRecording,
-    // })
+    webBoard.liveControl.setRecording({
+      start: startRecording,
+      stop: stopRecording,
+    })
+    webBoard.setChatCallback((data) => {
+      console.log('chat', data.nickname, data.message)
+    })
     if (!props.publisher) {
       webBoard.setMode('panning')
       set_currentMode('panning')
@@ -221,81 +235,89 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
     }
   }, [])
   return (
-    <div className="canvas-wrap">
-      {userList && (
-        <div className="user-wrap">
-          <button
-            onClick={() => {
-              set_userList(null)
-            }}
-          >
-            Close
-          </button>
-          <div className="user-list">
-            {userList.map((user, index) => {
-              return (
-                <div key={index}>
-                  <span>
-                    {user.name} (
-                    {user.metadata === 'presenter' ? '방장' : '참여자'})
-                  </span>
-                  {user.metadata !== 'presenter' && (
-                    <>
-                      <button
-                        onClick={() => {
-                          blackboard?.liveControl.toggleMic(user.identity)
-                          set_userList((prev) => {
-                            if (!prev) return null
-                            return prev.map((prevUser) => {
-                              if (prevUser.identity === user.identity) {
-                                return {
-                                  ...prevUser,
-                                  access: {
-                                    ...prevUser.access,
-                                    mic: !prevUser.access.mic,
-                                  },
+    <>
+      {pending && <div className="pending">pending...</div>}
+      <div className="canvas-wrap">
+        {userList && (
+          <div className="user-wrap">
+            <button
+              onClick={() => {
+                set_userList(null)
+              }}
+            >
+              Close
+            </button>
+            <div className="user-list">
+              {userList.map((user, index) => {
+                return (
+                  <div key={index}>
+                    <span>
+                      {user.name} (
+                      {user.metadata === 'presenter' ? '방장' : '참여자'})
+                    </span>
+                    {user.metadata !== 'presenter' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            blackboard?.liveControl.toggleMic(
+                              user.identity,
+                              user.sid
+                            )
+                            set_userList((prev) => {
+                              if (!prev) return null
+                              return prev.map((prevUser) => {
+                                if (prevUser.identity === user.identity) {
+                                  return {
+                                    ...prevUser,
+                                    access: {
+                                      ...prevUser.access,
+                                      mic: !prevUser.access.mic,
+                                    },
+                                  }
                                 }
-                              }
-                              return prevUser
-                            }) as AccessParticipantType[]
-                          })
-                        }}
-                      >
-                        마이크 토글 {user.access.mic ? 'on' : 'off'}
-                      </button>
-                      <button
-                        onClick={() => {
-                          blackboard?.liveControl.toggleDrawAble(user.identity)
-                          set_userList((prev) => {
-                            if (!prev) return null
-                            return prev.map((prevUser) => {
-                              if (prevUser.identity === user.identity) {
-                                return {
-                                  ...prevUser,
-                                  access: {
-                                    ...prevUser.access,
-                                    draw: !prevUser.access.draw,
-                                  },
+                                return prevUser
+                              }) as AccessParticipantType[]
+                            })
+                          }}
+                        >
+                          마이크 토글 {user.access.mic ? 'on' : 'off'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            blackboard?.liveControl.toggleDrawAble(
+                              user.identity,
+                              user.sid
+                            )
+                            set_userList((prev) => {
+                              if (!prev) return null
+                              return prev.map((prevUser) => {
+                                if (prevUser.identity === user.identity) {
+                                  return {
+                                    ...prevUser,
+                                    access: {
+                                      ...prevUser.access,
+                                      draw: !prevUser.access.draw,
+                                    },
+                                  }
                                 }
-                              }
-                              return prevUser
-                            }) as AccessParticipantType[]
-                          })
-                        }}
-                      >
-                        그리기 토글 {user.access.draw ? 'on' : 'off'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )
-            })}
+                                return prevUser
+                              }) as AccessParticipantType[]
+                            })
+                          }}
+                        >
+                          그리기 토글 {user.access.draw ? 'on' : 'off'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      )}
-      <div className="control-box">
-        <div className="buttons">
-          {/* <button
+        )}
+        <div className="control-box">
+          <div className="buttons">
+            {/* <button
             onClick={() => {
               blackboard?.liveControl.connect()
             }}
@@ -309,134 +331,150 @@ const WebBoard = ({ ...props }: WebBoardProps) => {
             >
               <BiRadioCircleMarked />
             </button> */}
-          {access.draw && (
-            <>
-              <button
-                onClick={async () => {
-                  const response = await getUserList(props.roomName)
-                  const withAccess: AccessParticipantType[] = response.map(
-                    (user) => {
-                      const access = blackboard?.getUserInfo(
-                        user.identity
-                      )?.access
-                      return {
-                        ...user,
-                        access: {
-                          mic: access?.mic ?? false,
-                          draw: access?.draw ?? false,
-                        },
-                      } as AccessParticipantType
-                    }
-                  )
-                  set_userList(withAccess)
-                }}
-              >
-                <BiUser />
-              </button>
-              <button
-                onClick={() => {
-                  blackboard?.clear()
-                }}
-              >
-                <BiTrash />
-              </button>
-              <button
-                className={clsx('btn', {
-                  active: currentMode === 'pen',
-                })}
-                onClick={() => {
-                  blackboard?.setMode('pen')
-                  set_currentMode('pen')
-                }}
-              >
-                <BiBrush />
-              </button>
-              <button
-                className={clsx('btn', {
-                  active: currentMode === 'marker',
-                })}
-                onClick={() => {
-                  blackboard?.setMode('marker')
-                  set_currentMode('marker')
-                }}
-              >
-                <BiPaintRoll />
-              </button>
-              <button
-                className={clsx('btn', {
-                  active: currentMode === 'eraser',
-                })}
-                onClick={() => {
-                  blackboard?.setMode('eraser')
-                  set_currentMode('eraser')
-                }}
-              >
-                <BiEraser />
-              </button>
-              <button
-                className={clsx('btn', {
-                  active: currentMode === 'delete',
-                })}
-                onClick={() => {
-                  blackboard?.setMode('delete')
-                  set_currentMode('delete')
-                }}
-              >
-                <BiSolidEraser />
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  blackboard?.setBackground(
-                    `https://newsimg.hankookilbo.com/2019/11/14/201911141677783852_8.jpg`
-                  )
-                }}
-              >
-                <BiImageAdd />
-              </button>
-              <button
-                disabled={controlStacks.undoStack.length === 0}
-                onClick={() => {
-                  blackboard?.stackManager.undo()
-                }}
-              >
-                <BiUndo />
-              </button>
-              <button
-                disabled={controlStacks.redoStack.length === 0}
-                onClick={() => {
-                  blackboard?.stackManager.redo()
-                }}
-              >
-                <BiRedo />
-              </button>
-            </>
-          )}
-          <button
-            className={clsx('btn', {
-              active: currentMode === 'panning',
-            })}
-            onClick={() => {
-              blackboard?.setMode('panning')
-              set_currentMode('panning')
-            }}
-          >
-            <BiSolidHand />
-          </button>
-          <button
-            onClick={async () => {
-              blackboard?.liveControl.disconnect()
-              props.publisher && (await deleteCurrentRoom())
-              props.onClose()
-            }}
-          >
-            <BiXCircle />
-          </button>
+            <button
+              onClick={() => {
+                blackboard?.liveControl.chat('hi' + Date.now())
+              }}
+            >
+              chat test
+            </button>
+            {access.draw && (
+              <>
+                <button
+                  onClick={async () => {
+                    const response = await getUserList(props.roomName)
+                    const withAccess: AccessParticipantType[] = response.map(
+                      (user) => {
+                        const access = blackboard?.getUserInfo(
+                          user.identity
+                        )?.access
+                        return {
+                          ...user,
+                          access: {
+                            mic: access?.mic ?? false,
+                            draw: access?.draw ?? false,
+                          },
+                        } as AccessParticipantType
+                      }
+                    )
+                    set_userList(withAccess)
+                  }}
+                >
+                  <BiUser />
+                </button>
+                <button
+                  onClick={() => {
+                    blackboard?.clear()
+                  }}
+                >
+                  <BiTrash />
+                </button>
+                <button
+                  className={clsx('btn', {
+                    active: currentMode === 'pen',
+                  })}
+                  onClick={() => {
+                    blackboard?.setMode('pen')
+                    set_currentMode('pen')
+                  }}
+                >
+                  <BiBrush />
+                </button>
+                <button
+                  className={clsx('btn', {
+                    active: currentMode === 'marker',
+                  })}
+                  onClick={() => {
+                    blackboard?.setMode('marker')
+                    set_currentMode('marker')
+                  }}
+                >
+                  <BiPaintRoll />
+                </button>
+                <button
+                  className={clsx('btn', {
+                    active: currentMode === 'eraser',
+                  })}
+                  onClick={() => {
+                    blackboard?.setMode('eraser')
+                    set_currentMode('eraser')
+                  }}
+                >
+                  <BiEraser />
+                </button>
+                <button
+                  className={clsx('btn', {
+                    active: currentMode === 'delete',
+                  })}
+                  onClick={() => {
+                    blackboard?.setMode('delete')
+                    set_currentMode('delete')
+                  }}
+                >
+                  <BiSolidEraser />
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    blackboard?.setBackground(
+                      `https://newsimg.hankookilbo.com/2019/11/14/201911141677783852_8.jpg`
+                    )
+                  }}
+                >
+                  <BiImageAdd />
+                </button>
+                <button
+                  disabled={controlStacks.undoStack.length === 0}
+                  onClick={() => {
+                    blackboard?.stackManager.undo()
+                  }}
+                >
+                  <BiUndo />
+                </button>
+                <button
+                  disabled={controlStacks.redoStack.length === 0}
+                  onClick={() => {
+                    blackboard?.stackManager.redo()
+                  }}
+                >
+                  <BiRedo />
+                </button>
+              </>
+            )}
+            <button
+              className={clsx('btn', {
+                active: currentMode === 'panning',
+              })}
+              onClick={() => {
+                blackboard?.setMode('panning')
+                set_currentMode('panning')
+              }}
+            >
+              <BiSolidHand />
+            </button>
+            <button
+              onClick={async () => {
+                blackboard?.liveControl.disconnect()
+                props.publisher && (await deleteCurrentRoom())
+                props.onClose()
+              }}
+            >
+              <BiXCircle />
+            </button>
+            <button
+              onClick={() => {
+                blackboard?.liveControl.cancelRecording()
+                set_pending(true)
+              }}
+            >
+              <BiAlarm />
+            </button>
+          </div>
         </div>
+        <audio ref={audioRef} id={'wb-audio'} controls></audio>
+        <div ref={containerRef}></div>
       </div>
-      <audio ref={audioRef} id={'wb-audio'} controls></audio>
-      <div ref={containerRef}></div>
-    </div>
+    </>
   )
 }
 

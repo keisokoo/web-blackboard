@@ -14,7 +14,7 @@
     "build": "webpack --env development",
     "prod": "webpack --env production",
     "watch": "webpack --watch --env development",
-    "storybook": "storybook dev -p 3090",
+    "storybook": "storybook dev -p 3090 --https --ssl-cert ./192.168.0.55.pem --ssl-key ./192.168.0.55-key.pem",
     "build-storybook": "storybook build"
   },
   "keywords": [],

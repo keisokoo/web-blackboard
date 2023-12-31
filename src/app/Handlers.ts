@@ -211,7 +211,7 @@ class Handlers {
       timeline: {
         start: wb.timestamp.start,
         end: wb.timestamp.end,
-        duration: (wb.timestamp.start - wb.timestamp.start) / 1000
+        duration: (wb.timestamp.end - wb.timestamp.start)
       },
       paint: {
         id: wb.line.id(),
@@ -235,7 +235,7 @@ class Handlers {
       timeline: {
         start: this.startTime,
         end: this.endTime,
-        duration: (this.endTime - this.startTime) / 1000
+        duration: (this.endTime - this.startTime)
       },
       panning: {
         before: this.beforeStagePosition,

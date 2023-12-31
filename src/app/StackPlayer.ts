@@ -18,14 +18,6 @@ type AudioCallbackData = {
   }
 }
 
-function debounce(func: (...args: unknown[]) => void, wait: number) {
-  let timeout: NodeJS.Timeout;
-  return function (this: unknown, ...args: unknown[]) {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(this, args), wait);
-  };
-}
-
 class StackPlayer {
   blackboard: Blackboard;
   currentStagePosition: {
@@ -45,6 +37,7 @@ class StackPlayer {
   audio: HTMLAudioElement | null = null;
   seekerElement: HTMLDivElement | null = null;
   seekerWrapper: HTMLDivElement | null = null;
+  audioPaused: boolean = false;
 
   timeInfo: AudioTimeInfo = {
     currentTime: 0,
@@ -65,6 +58,8 @@ class StackPlayer {
   isPlaying = false;
   audioEnded = false;
 
+  debounceTimeout: NodeJS.Timeout | null = null;
+
   private playingTimeouts: Set<NodeJS.Timeout> = new Set();
   animations: Set<Konva.Animation> = new Set();
 
@@ -78,6 +73,13 @@ class StackPlayer {
       after: currentStagePosition
     }
   }
+  debounce(func: (...args: unknown[]) => void, wait: number, _this: StackPlayer) {
+    return function (this: unknown, ...args: unknown[]) {
+      _this.debounceTimeout && clearTimeout(_this.debounceTimeout);
+      _this.debounceTimeout = setTimeout(() => func.apply(this, args), wait);
+    };
+  }
+
   stopAllAnimations() {
     this.animations.forEach(anim => {
       anim.stop();
@@ -138,11 +140,15 @@ class StackPlayer {
   parseTimeToPercent(currentTime: number, duration: number) {
     return currentTime / duration * 100;
   }
-
+  millisecondsToSeconds(milliseconds: number) {
+    return Math.floor(milliseconds / 1000);
+  }
   setStacksBySeekTime(historyStacks: StackType[], seekTime: number) {
+    if (seekTime < 0) seekTime = 0;
     // seekTime과 timeline.start는 실행 시점의 Date.now()값을 지니고 있다.
-    this.playedStacks = historyStacks.filter(stack => stack.timeline.start - seekTime <= 0);
-    this.notPlayingStacks = historyStacks.filter(stack => stack.timeline.start - seekTime > 0);
+    this.playedStacks = historyStacks.filter(stack => this.millisecondsToSeconds(stack.timeline.start) - this.millisecondsToSeconds(seekTime) < 0);
+    console.log('this.playedStacks!', this.playedStacks)
+    this.notPlayingStacks = historyStacks.filter(stack => this.millisecondsToSeconds(stack.timeline.start) - this.millisecondsToSeconds(seekTime) >= 0);
     this.preRenderPlayedStacks()
   }
   private preRenderPlayedStacks() {
@@ -150,6 +156,7 @@ class StackPlayer {
     this.blackboard.backgroundLayer.destroyChildren();
     this.blackboard.stage.position({ x: 0, y: 0 });
     this.blackboard.setBackground(this.recordInfo.firstImage, true);
+    console.log('this.playedStacks', this.playedStacks)
     this.playedStacks.forEach(stack => {
       this.blackboard.stackManager.runStack(stack);
     })
@@ -265,11 +272,12 @@ class StackPlayer {
     }
     if (isPaintStack) {
       if (stack.action === 'add') {
-        this.animateLineWithDuration(stack.timeline.duration, this.blackboard.layer, stack);
+        this.animateLineWithDuration(stack.timeline.end - stack.timeline.start, this.blackboard.layer, stack);
       }
     }
   }
   reRenderDrawingLayer(seekTime: number, updateCurrentTime: boolean = true) {
+    console.log('reRenderDrawingLayer', seekTime)
     if (!this.recordInfo) return;
     if (this.audio && updateCurrentTime) this.audio.currentTime = seekTime;
     this.clearAllTimeouts();
@@ -382,14 +390,6 @@ class StackPlayer {
     }
     return !this.audio.paused;
   }
-  debouncedFunction = debounce(() => {
-    console.log('debouncedFunction', this.nextTime)
-    if (!this.isSeeking) return;
-    this.isSeeking = false;
-    this.updateSeeker(this.parseTimeToPercent(this.nextTime, this.timeInfo.duration))
-    this.reRenderDrawingLayer(this.nextTime);
-  }, 250);
-
   updateSeeker(percent: number) {
     if (!this.seekerElement) return;
     if (!this.seekerWrapper) return;
@@ -399,61 +399,74 @@ class StackPlayer {
     if (!this.recordInfo) return;
     if (!this.audio) return;
     if (!this.seekerElement) return;
+    if (!this.seekerWrapper) return;
     this.isSeeking = true;
     this.movedSeeker = false;
-    // if (!this.audio.paused) {
-    //   this.audio.pause();
-    // }
+    this.audioPaused = this.audio.paused;
+    this.seekerWrapper.onpointermove = this.onSeekerMove.bind(this);
+    this.seekerWrapper.onpointerup = this.onSeekerUp.bind(this);
+    this.seekerWrapper.onpointerleave = this.onSeekerUp.bind(this);
   }
+  debouncedFunction = this.debounce(() => {
+    this.movedSeeker = true
+    this.reRenderDrawingLayer(this.nextTime);
+  }, 250, this);
+
   onSeekerMove(e: PointerEvent) {
     if (!this.isSeeking) return;
     if (!this.audio) return;
     if (!this.seekerWrapper) return;
     if (!this.seekerElement) return;
-    this.movedSeeker = true;
 
     const XPosition = e.pageX - this.seekerWrapper.offsetLeft;
     const percent = (XPosition / this.seekerWrapper.offsetWidth) * 100;
     this.seekerElement.style.width = percent + '%'
-    const currentTime = this.timeInfo.duration * percent / 100;
+    let currentTime = this.timeInfo.duration * percent / 100;
+    if (currentTime < 0) currentTime = 0;
+    if (currentTime > this.timeInfo.duration) currentTime = this.timeInfo.duration;
     this.nextTime = currentTime;
-    console.log('currentTime', currentTime)
-    // run methods with debounce
+    if (!this.audio.paused) this.audio.pause()
 
     this.debouncedFunction(this);
   }
   onSeekerUp(e: PointerEvent) {
-    console.log('onSeekerUp',)
+    if (this.debounceTimeout) clearTimeout(this.debounceTimeout)
+    if (!this.isSeeking) return
     if (!this.audio) return;
     if (!this.seekerWrapper) return;
     if (!this.seekerElement) return;
+    const XPosition = e.pageX - this.seekerWrapper.offsetLeft;
+    const percent = (XPosition / this.seekerWrapper.offsetWidth) * 100;
+    let currentTime = this.timeInfo.duration * percent / 100;
+    if (currentTime < 0) currentTime = 0;
+    if (currentTime > this.timeInfo.duration) currentTime = this.timeInfo.duration;
+    console.log('onSeekerUp', this.nextTime, currentTime)
     if (!this.movedSeeker) {
-      this.movedSeeker = false;
-      const XPosition = e.pageX - this.seekerWrapper.offsetLeft;
-      const percent = (XPosition / this.seekerWrapper.offsetWidth) * 100;
-      this.seekerElement.style.width = percent + '%'
-      const currentTime = this.timeInfo.duration * percent / 100;
       this.nextTime = currentTime;
+      this.seekerElement.style.width = percent + '%'
       this.reRenderDrawingLayer(this.nextTime);
       console.log('currentTime', currentTime)
     }
-    // if (this.audio.paused) {
-    //   this.audio.play();
-    // }
+    if (!this.audioPaused && this.audio.paused) {
+      this.audio.play();
+    }
+    this.movedSeeker = false;
     this.isSeeking = false;
+    this.seekerWrapper.onpointermove = null;
+    this.seekerWrapper.onpointerup = null;
+    this.seekerWrapper.onpointerleave = null;
   }
   setSeeker(seekerElement: HTMLDivElement, seekerWrapper: HTMLDivElement) {
     this.seekerElement = seekerElement;
     this.seekerWrapper = seekerWrapper
     this.seekerWrapper.onpointerdown = this.onSeekerDown.bind(this);
-    this.seekerWrapper.onpointermove = this.onSeekerMove.bind(this);
-    this.seekerWrapper.onpointerup = this.onSeekerUp.bind(this);
   }
   destroySeeker() {
     if (!this.seekerWrapper) return;
     this.seekerWrapper.onpointerdown = null;
     this.seekerWrapper.onpointermove = null;
     this.seekerWrapper.onpointerup = null;
+    this.seekerWrapper.onpointerleave = null;
     this.seekerWrapper = null;
     this.seekerElement = null;
   }

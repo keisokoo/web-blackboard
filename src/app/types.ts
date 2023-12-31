@@ -82,12 +82,18 @@ export type BlackboardUserType = {
   role: RoleType
 }
 export type LiveControlUserType = {
+  sid: string
   access: AccessType
   userType: 'local' | 'remote'
 } & BlackboardUserType
 
 
-
+export type ChatMessage = {
+  message: string
+  nickname: string
+  sender: string
+  timestamp: number
+}
 export enum EgressStatus {
   EGRESS_STARTING = 0,
   EGRESS_ACTIVE = 1,

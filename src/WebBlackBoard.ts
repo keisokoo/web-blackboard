@@ -111,7 +111,7 @@ class WebBlackBoard {
   setBrushEventCallback(room: Room) {
     this.brushEventCallback = (data: string) => {
       const strData = encoder.encode(data);
-      room.localParticipant?.publishData(strData, DataPacket_Kind.LOSSY);
+      room.localParticipant?.publishData(strData, DataPacket_Kind.RELIABLE);
     }
   }
   getCurrentData(message?: string): CallbackData {

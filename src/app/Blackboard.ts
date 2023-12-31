@@ -1,5 +1,5 @@
 import Konva from "konva";
-import { BlackboardUserType, LiveControlUserType, ModeType, RecordDataType, RoleType, StackType } from "./types";
+import { BlackboardUserType, ChatMessage, EgressInfo, LiveControlUserType, ModeType, RecordDataType, RoleType, StackType } from "./types";
 import BrushDefault from "./BrushDefault";
 import Cursor from "./Cursor";
 import StackManager from "./StackManager";
@@ -18,11 +18,12 @@ type WebBlackboardCallBackData = {
     redoStack: StackType[]
     stacks: StackType[]
     userList: Map<string, LiveControlUserType>
+    egressInfo?: EgressInfo | null
     access?: LiveControlUserType['access'],
-    recordData?: RecordDataType | null
+    recordData?: RecordDataType | null,
+    nowRecord?: boolean
   }
 }
-
 type BlackboardConfig = {
   width?: number
   height?: number
@@ -36,6 +37,8 @@ type BlackboardConfig = {
   }
 }
 class Blackboard {
+  egressInfo: EgressInfo | null = null
+  nowRecord: boolean = false
   recordData: RecordDataType | null = null
   user: BlackboardUserType
   userList: Map<string, LiveControlUserType> = new Map();
@@ -56,6 +59,7 @@ class Blackboard {
   firstBackgroundImage: string = '';
   liveControl: LiveControl
   callback: (data: WebBlackboardCallBackData) => void = () => { };
+  chatCallback: (data: ChatMessage) => void = () => { };
   onClose: () => void = () => { };
   stackPlayer: StackPlayer;
   constructor(user: BlackboardUserType, container: HTMLDivElement, config: BlackboardConfig) {
@@ -89,6 +93,7 @@ class Blackboard {
     this.liveControl = new LiveControl(this)
     this.handlers = new Handlers(this);
     this.callback = config?.callback || this.callback
+
     window.addEventListener('resize', () => { // TODO: refactor this 
       this.width = window.innerWidth;
       this.height = window.innerHeight;
@@ -99,6 +104,9 @@ class Blackboard {
     this.setStageHandler(this.handlers);
     if (this.user.role !== 'presenter') this.setMode('panning')
     this.stackPlayer = new StackPlayer(this)
+  }
+  setChatCallback(callback: (data: ChatMessage) => void) {
+    this.chatCallback = callback
   }
   setOnClose(onClose: () => void) {
     this.onClose = onClose
@@ -213,6 +221,8 @@ class Blackboard {
         userList: this.userList,
         access: localUser?.access,
         recordData: this.recordData,
+        egressInfo: this.egressInfo,
+        nowRecord: this.nowRecord,
         ...extraData
       }
     })

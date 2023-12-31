@@ -21,7 +21,7 @@ import './canvas.css'
 import Konva from 'konva'
 import generateHash from '../src/helper/generateHash'
 import { ModeType, RecordInfoType, StackType } from '../src/app/types'
-import { audioDataSample, sampleAudioUrl, stackSamples } from './samples'
+import { audioDataSample, sampleAudioUrl } from './samples'
 import StackPlayer from '../src/app/StackPlayer'
 
 const randomUserId = 'local-' + generateHash()
@@ -120,7 +120,7 @@ export const Demo = () => {
     if (audioRef.current) {
       const recordData: RecordInfoType = {
         ...audioDataSample,
-        audioUrl: sampleAudioUrl,
+        audioUrl: sampleAudioUrl + audioDataSample.filename,
       }
       webBoard.stackPlayer.setRecord(audioRef.current, recordData)
     }

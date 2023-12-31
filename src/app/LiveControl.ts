@@ -1,17 +1,31 @@
 import { Room, RemoteParticipant, LocalTrackPublication, createLocalAudioTrack, Participant, ParticipantEvent, RemoteTrack, RemoteTrackPublication, RoomEvent, Track, DataPacket_Kind } from "livekit-client";
 import Blackboard from "./Blackboard";
-import { UserType, AccessType, BlackboardUserType, LiveControlUserType, StackType, RoleType, RecordDataType, EgressInfo } from "./types";
+import { UserType, AccessType, BlackboardUserType, LiveControlUserType, StackType, RoleType, RecordDataType, EgressInfo, ChatMessage } from "./types";
 import WBLine from "./WBLine";
 import { parseNanoToMilliseconds } from "../helper/timestamp";
 import generateHash from "../helper/generateHash";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+type NotifyData = {
+  type: 'request-draw' | 'request-mic' | 'egress_started' | 'init' | 'mute' | 'unmute' | 'draw-on' | 'draw-off'
+  target?: string // 전달 대상이 되는 user id or 'all'
+  requestId?: string // 요청자 id
+}
+
 class LiveControl {
-  isRecording: boolean = false;
-  egressInfo: EgressInfo | null = null;
   private wsURL: string = '';
   private wsToken: string = '';
+
+  recordThreshold: number = 1000; // milliseconds
+
+  recordLimit: number = 20 * 60 * 1000; // milliseconds
+
+  limitTime: number = 0; // milliseconds
+
+  limitTimeout: NodeJS.Timeout | null = null;
+
   room: Room;
   publishTrack: LocalTrackPublication | null = null;
   audioElement: HTMLAudioElement | null = null;
@@ -20,8 +34,13 @@ class LiveControl {
 
   recording?: {
     start: (roomName: string) => Promise<EgressInfo | null>,
-    stop: (egressId: string) => Promise<EgressInfo | null>,
+    stop: (egressId: string, isCancel?: boolean) => Promise<EgressInfo | null>,
   }
+
+  notify: (data: NotifyData) => void = () => { };
+
+  timerCallback: (data: { limitTime: number, recordLimit: number }) => void = () => { };
+
   constructor(blackboard: Blackboard) {
     this.blackboard = blackboard;
     this.addUser(this.blackboard.user)
@@ -40,6 +59,35 @@ class LiveControl {
     });
     this.setRoomEvent(this.room)
   }
+
+  setTimerCallback(timerCallback: (data: { limitTime: number, recordLimit: number }) => void) {
+    this.timerCallback = timerCallback
+  }
+
+  clearLimitTime() {
+    this.limitTime = 0;
+    if (this.limitTimeout) clearTimeout(this.limitTimeout)
+  }
+
+  pauseLimitTime() {
+    if (this.limitTimeout) clearTimeout(this.limitTimeout)
+  }
+
+  checkLimitTime() {
+    this.limitTimeout = setTimeout(() => {
+      if (this.limitTime >= this.recordLimit) {
+        this.disconnect()
+        clearTimeout(this.limitTimeout!)
+        return
+      }
+      this.limitTime += 1000;
+      this.checkLimitTime()
+    }, 1000)
+  }
+
+  setNotify(notify: (data: NotifyData) => void) {
+    this.notify = notify;
+  }
   setRecording(recording: {
     start: (roomName: string) => Promise<EgressInfo | null>,
     stop: (egressId: string) => Promise<EgressInfo | null>,
@@ -52,17 +100,43 @@ class LiveControl {
   setToken(token: string) {
     this.wsToken = token;
   }
-  publishData(data: string) {
+  publishData(data: string, sids?: string[]) {
     if (this.room.state !== 'connected') return
     if (this.room.participants.size === 0) return
     const strData = encoder.encode(data);
-    this.room.localParticipant?.publishData(strData, DataPacket_Kind.LOSSY);
+    const sidsTarget = sids && sids.length > 0 ? sids : Array.from(this.room.participants).map(([sid, participant]) => sid)
+    this.room.localParticipant?.publishData(strData, DataPacket_Kind.RELIABLE, sidsTarget);
+  }
+  chat(message: string) {
+    const data = {
+      type: 'chat',
+      data: {
+        message: message,
+        sender: this.blackboard.user.id,
+        nickname: this.blackboard.user.nickname,
+        timestamp: Date.now()
+      } as ChatMessage
+    }
+    this.publishData(JSON.stringify(data))
+    this.blackboard.chatCallback(data.data)
+    return data.data
   }
   receiveData(data: string) {
     const decoded = JSON.parse(data);
     if (!decoded) return
-    console.log('decoded', decoded)
     if (decoded.target && decoded.target === this.blackboard.user.id && decoded.type) {
+      if (decoded.type === 'request-draw') {
+        this.notify(decoded)
+      }
+      if (decoded.type === 'request-mic') {
+        this.notify(decoded)
+      }
+      if (decoded.type === 'egress_started') {
+        setTimeout(() => {
+          this.blackboard.nowRecord = true
+          this.blackboard.updated('record start')
+        }, this.recordThreshold)
+      }
       if (decoded.type === 'init') {
         const stacks = decoded.stacks;
         const imageUrl = decoded.image;
@@ -119,7 +193,6 @@ class LiveControl {
           this.blackboard.layer.batchDraw();
         } else if (decoded.type === 'remote-up') {
           const wb = this.blackboard.getLastLine(decoded.userId);
-          console.log('wb', wb)
           if (!wb) return
           wb.setTimestamp({ end: Date.now() })
           this.blackboard.stackManager.addStack({
@@ -128,7 +201,7 @@ class LiveControl {
             timeline: {
               start: wb.timestamp.start,
               end: wb.timestamp.end,
-              duration: (wb.timestamp.end - wb.timestamp.start) / 1000
+              duration: (wb.timestamp.end - wb.timestamp.start)
             },
             paint: {
               id: wb.line.id(),
@@ -137,13 +210,19 @@ class LiveControl {
               points: wb.line.points()
             }
           }, true, false)
-          console.log(this.blackboard.stackManager.getStacks())
+          const currentStacks = this.blackboard.stackManager.getStacks()
+          console.log('added stack', currentStacks[currentStacks.length - 1])
           this.blackboard.layer.batchDraw();
         }
       } else {
-        const stack = decoded as StackType;
-        this.blackboard.stackManager.runStack(stack);
-        this.blackboard.stackManager.addStack(stack, false, false);
+        if (this.blackboard.stackManager.isStackType(decoded)) {
+          const stack = decoded as StackType;
+          this.blackboard.stackManager.runStack(stack);
+          this.blackboard.stackManager.addStack(stack, false, false);
+        }
+        if (decoded.type === 'chat') {
+          this.blackboard.chatCallback(decoded.data)
+        }
       }
     }
   }
@@ -180,10 +259,11 @@ class LiveControl {
       currentRoom.participants.forEach((participant) => {
         console.log('participant', participant)
       })
-      if (this.blackboard.user.role === 'presenter' && !this.isRecording) {
+      if (this.blackboard.user.role === 'presenter') {
         if (this.recording?.start) {
           const recordingData = await this.recording.start(currentRoom.name)
-          this.egressInfo = recordingData
+          this.blackboard.egressInfo = recordingData
+          this.blackboard.updated('egress start')
         }
       }
     })
@@ -228,13 +308,15 @@ class LiveControl {
         image: this.blackboard.background?.id()
       }
       const strData = encoder.encode(JSON.stringify(data));
-      currentRoom.localParticipant?.publishData(strData, DataPacket_Kind.LOSSY, [participant.sid]);
+      currentRoom.localParticipant?.publishData(strData, DataPacket_Kind.RELIABLE, [participant.sid]);
     })
     currentRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
       const presenter = this.blackboard.userList.get(participant.identity)
       this.removeUser(participant.identity)
       if (presenter?.role === 'presenter') {
         this.disconnect()
+        this.blackboard.nowRecord = false
+        this.blackboard.updated('record end')
       }
     })
   }
@@ -290,9 +372,9 @@ class LiveControl {
   async disconnect() {
     if (this.blackboard.user.role === 'presenter') {
       if (this.recording?.stop) {
-        const recordingData = await this.recording.stop(this.egressInfo?.egressId ?? '')
-        this.egressInfo = recordingData
-        this.blackboard.recordData = this.groupingPlayingData(this.egressInfo, this.blackboard.stackManager.getStacks())
+        const recordingData = await this.recording.stop(this.blackboard.egressInfo?.egressId ?? '')
+        this.blackboard.egressInfo = recordingData
+        this.blackboard.recordData = this.groupingPlayingData(this.blackboard.egressInfo, this.blackboard.stackManager.getStacks())
         console.log('this.blackboard.recordData', this.blackboard.recordData)
         this.blackboard.updated('record done')
       }
@@ -301,9 +383,21 @@ class LiveControl {
     this.blackboard.onClose()
     console.log('disconnected from room');
   }
+  async cancelRecording() {
+    if (this.blackboard.user.role === 'presenter') {
+      if (this.recording?.stop) {
+        await this.recording.stop(this.blackboard.egressInfo?.egressId ?? '', true)
+        this.blackboard.egressInfo = null
+        this.blackboard.recordData = null
+        this.blackboard.nowRecord = false
+        this.blackboard.updated('record cancel')
+      }
+    }
+  }
   addUser(user: BlackboardUserType, participant?: RemoteParticipant | null) {
     this.blackboard.userList.set(user.id, {
       ...user,
+      sid: participant?.sid ?? '',
       userType: participant ? 'remote' : 'local',
       access: {
         mic: user.role === 'presenter',
@@ -317,38 +411,76 @@ class LiveControl {
       return participant.identity === userId
     })
   }
-  onRemoteDraw(userId: string) {
+  requestRemoteDraw(userId: string, sid: string) {
+    const presenter = Array.from(this.blackboard.userList).find(([id, user]) => {
+      return user.role === 'presenter'
+    })?.[0]
+    if (!presenter) return
+    const data = {
+      type: 'request-draw',
+      target: presenter,
+      requestId: userId
+    }
+    this.publishData(JSON.stringify(data), sid ? [sid] : undefined)
+  }
+  onRemoteDraw(userId: string, sid: string) {
     const data = {
       type: 'draw-on',
       target: userId
     }
-    this.publishData(JSON.stringify(data))
+    this.publishData(JSON.stringify(data), sid ? [sid] : undefined)
+    this.blackboard.userList.set(userId, {
+      ...this.blackboard.userList.get(userId)!,
+      access: {
+        ...this.blackboard.userList.get(userId)?.access!,
+        draw: true
+      }
+    })
   }
-  offRemoteDraw(userId: string) {
+  offRemoteDraw(userId: string, sid: string) {
     const data = {
       type: 'draw-off',
-      target: userId
+      target: userId,
     }
-    this.publishData(JSON.stringify(data))
+    this.publishData(JSON.stringify(data), sid ? [sid] : undefined)
+    this.blackboard.userList.set(userId, {
+      ...this.blackboard.userList.get(userId)!,
+      access: {
+        ...this.blackboard.userList.get(userId)?.access!,
+        draw: false
+      }
+    })
   }
-  toggleDrawAble(userId: string) {
+  toggleDrawAble(userId: string, sid: string) {
     const selectedUser = this.blackboard.userList.get(userId)
     if (selectedUser) {
       if (selectedUser.access.draw) {
-        this.offRemoteDraw(userId)
+        this.offRemoteDraw(userId, sid)
       } else {
-        this.onRemoteDraw(userId)
+        this.onRemoteDraw(userId, sid)
       }
       this.blackboard.userList.set(userId, { ...selectedUser, access: { ...selectedUser.access, draw: !selectedUser.access.draw } })
     }
     this.blackboard.updated('toggle draw able')
   }
-  muteTracks(userId: string) {
+  requestRemoteMic(userId: string, sid: string) {
+    const presenter = Array.from(this.blackboard.userList).find(([id, user]) => {
+      return user.role === 'presenter'
+    })?.[0]
+    if (!presenter) return
+    const data = {
+      type: 'request-mic',
+      target: presenter,
+      requestId: userId
+    }
+    this.publishData(JSON.stringify(data), sid ? [sid] : undefined)
+  }
+  muteTracks(userId: string, sid: string) {
     const data = {
       target: userId,
       type: 'mute',
     }
-    this.publishData(JSON.stringify(data));
+    this.publishData(JSON.stringify(data), sid ? [sid] : undefined);
     this.blackboard.userList.set(userId, {
       ...this.blackboard.userList.get(userId)!,
       access: {
@@ -357,12 +489,12 @@ class LiveControl {
       }
     })
   }
-  unmuteTracks(userId: string) {
+  unmuteTracks(userId: string, sid: string) {
     const data = {
       target: userId,
       type: 'unmute',
     }
-    this.publishData(JSON.stringify(data));
+    this.publishData(JSON.stringify(data), sid ? [sid] : undefined);
     this.blackboard.userList.set(userId, {
       ...this.blackboard.userList.get(userId)!,
       access: {
@@ -371,16 +503,16 @@ class LiveControl {
       }
     })
   }
-  toggleMic(userId: string) {
+  toggleMic(userId: string, sid: string) {
     const user = this.blackboard.userList.get(userId);
     if (!user) return;
     const access = user.access;
     if (!access) return;
     const mic = access.mic;
     if (mic) {
-      this.muteTracks(userId);
+      this.muteTracks(userId, sid);
     } else {
-      this.unmuteTracks(userId);
+      this.unmuteTracks(userId, sid);
     }
   }
   removeUser(userId: string) {
