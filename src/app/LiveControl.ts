@@ -61,6 +61,7 @@ class LiveControl {
   }
 
   setTimerCallback(timerCallback: (data: { limitTime: number, recordLimit: number }) => void) {
+    if (this.limitTimeout) clearTimeout(this.limitTimeout)
     this.timerCallback = timerCallback
   }
 
