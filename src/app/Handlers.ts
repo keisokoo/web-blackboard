@@ -1,7 +1,7 @@
 import Konva from "konva";
+import generateHash from "../helper/generateHash";
 import Blackboard from "./Blackboard";
 import WBLine from "./WBLine";
-import generateHash from "../helper/generateHash";
 import { ModeType, PaintType, isPaintType } from "./types";
 
 class Handlers {
@@ -144,7 +144,6 @@ class Handlers {
   draggingMove(mode: ModeType) {
     if (mode !== 'panning') return;
     if (!this.isPanning) return;
-    console.log('this.blackboard.getStagePosition();', this.blackboard.getStagePosition())
   }
   remoteMove(userId: string, nextPoints: number[]) {
     const remoteData = {
